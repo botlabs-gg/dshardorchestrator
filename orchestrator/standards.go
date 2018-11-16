@@ -26,6 +26,12 @@ type StdNodeIDProvider struct {
 	Counter *int64
 }
 
+func NewNodeIDProvider() *StdNodeIDProvider {
+	return &StdNodeIDProvider{
+		Counter: new(int64),
+	}
+}
+
 func (nid *StdNodeIDProvider) GenerateID() string {
 	tns := time.Now().UnixNano()
 	c := atomic.AddInt64(nid.Counter, 1)

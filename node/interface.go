@@ -1,7 +1,7 @@
 package node
 
 import (
-	"github.com/jonas747/yagpdb/master"
+	"github.com/jonas747/dshardorchestrator"
 )
 
 type SessionInfo struct {
@@ -23,5 +23,5 @@ type Interface interface {
 	// this should return when all user events has been sent, with the number of user events sent
 	StartShardTransferFrom(shard int) (numEventsSent int)
 
-	HandleUserEvent(evt int, data interface{})
+	HandleUserEvent(evt dshardorchestrator.EventType, data interface{})
 }

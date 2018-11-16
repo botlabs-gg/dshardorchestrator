@@ -1,11 +1,12 @@
 package orchestrator
 
 import (
+	"github.com/jonas747/discordgo"
 	"github.com/jonas747/dshardorchestrator"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"net"
 	"sync"
+	"time"
 )
 
 // NodeIDProvider is responsible for generating unique ids for nodes
@@ -26,9 +27,30 @@ type RecommendTotalShardCountProvider interface {
 	GetTotalShardCount() (int, error)
 }
 
+// NodeLauncher is responsible for the logic of spinning up new processes
+type NodeLauncher interface {
+	LaunchNewNode() error
+}
+
 type Orchestrator struct {
+	// these fields are only safe to edit before you start the orchestrator
+	// if you decide to change anything afterwards, it may panic or cause undefined behaviour
+
 	NodeIDProvider     NodeIDProvider
 	ShardCountProvider RecommendTotalShardCountProvider
+	NodeLauncher       NodeLauncher
+	Logger             dshardorchestrator.Logger
+
+	// if set, the orchestrator will make sure that all the shards are always running
+	EnsureAllShardsRunning bool
+
+	// the max amount of downtime for a node before we consider it dead and it will start a new node for those shards
+	// if set to below zero then it will not perform the restart at all
+	MaxNodeDowntimeBeforeRestart time.Duration
+
+	// the maximum amount of shards per node, note that this is solely for the automated tasks the orchestrator provides
+	// and you can still go over it if you manually start shards on a node
+	MaxShardsPerNode int
 
 	// below fields are protected by the following mutex
 	mu             sync.Mutex
@@ -39,48 +61,45 @@ type Orchestrator struct {
 	activeMigrationTo   string
 }
 
-// Listen starts listening for slave connections,
-// it also starts the monitor that will start new slaves if none has been spotted for 15 seconds
-// (in case of crashes and such)
-func (o *Orchestrator) Listen(addr string) {
-	logrus.Println("Starting master on ", addr)
+func NewStandardOrchestrator(session *discordgo.Session) *Orchestrator {
+	return &Orchestrator{
+		NodeIDProvider:     &StdNodeIDProvider{},
+		ShardCountProvider: &StdShardCountProvider{DiscordSession: session},
+	}
+}
+
+func (o *Orchestrator) Start(listenAddr string) error {
+	err := o.openListen(listenAddr)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// openListen starts listening for slave connections on the specified address
+func (o *Orchestrator) openListen(addr string) error {
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		logrus.WithError(err).Fatal("Failed starting master")
+		return errors.WithMessage(err, "net.Listen")
 	}
 
 	// go monitorSlaves()
-	listenForNodes(listener)
+	go o.listenForNodes(listener)
+
+	return nil
 }
-
-// func StartSlave() {
-// 	logrus.Println("Starting slave")
-
-// 	// TODO: Make these args configurable
-// 	cmd := exec.Command("./capturepanics", "./yagpdb", "-bot", "-syslog")
-// 	cmd.Env = os.Environ()
-
-// 	wd, err := os.Getwd()
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	cmd.Dir = wd
-
-// 	err = cmd.Start()
-// 	if err != nil {
-// 		logrus.Println("Error starting slave: ", err)
-// 	}
-// }
 
 func (o *Orchestrator) listenForNodes(listener net.Listener) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			logrus.WithError(err).Error("Failed accepting slave")
+			o.Log(dshardorchestrator.LogError, err, "failed accepting incmoing connection")
 			continue
 		}
 
-		logrus.Println("New node connected")
+		o.Log(dshardorchestrator.LogInfo, nil, "new node connection!")
 		client := o.NewNodeConn(conn)
 
 		o.mu.Lock()
@@ -144,6 +163,8 @@ func (o *Orchestrator) GetFullNodesStatus() []*NodeStatus {
 		o.mu.Lock()
 	}
 	o.mu.Unlock()
+
+	return result
 }
 
 var (
@@ -225,4 +246,16 @@ func (o *Orchestrator) StartShardMigration(fromNodeID, toNodeID string, shardID 
 	})
 
 	return nil
+}
+
+func (o *Orchestrator) Log(level dshardorchestrator.LogLevel, err error, msg string) {
+	if err != nil {
+		msg = msg + ": " + err.Error()
+	}
+
+	if o.Logger == nil {
+		dshardorchestrator.StdLogInstance.Log(level, msg)
+	} else {
+		o.Logger.Log(level, msg)
+	}
 }

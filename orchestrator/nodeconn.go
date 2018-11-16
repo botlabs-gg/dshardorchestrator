@@ -1,8 +1,8 @@
 package orchestrator
 
 import (
+	"fmt"
 	"github.com/jonas747/dshardorchestrator"
-	"github.com/sirupsen/logrus"
 	"net"
 	"strings"
 	"sync"
@@ -22,7 +22,7 @@ type NodeConn struct {
 	runningShards []int
 
 	shardMigrationOtherNodeID   string
-	shardMigrationShard         bool
+	shardMigrationShard         int
 	shardMigrationMode          dshardorchestrator.ShardMigrationMode
 	processedUserEvents         int
 	shardmigrationTotalUserEvts int
@@ -33,7 +33,7 @@ type NodeConn struct {
 // NewNodeConn creates a new NodeConn (connection from master to slave) from a net.Conn
 func (o *Orchestrator) NewNodeConn(netConn net.Conn) *NodeConn {
 	sc := &NodeConn{
-		Conn:         dshardorchestrator.ConnFromNetCon(netConn),
+		Conn:         dshardorchestrator.ConnFromNetCon(netConn, o.Logger),
 		Orchestrator: o,
 	}
 
@@ -66,7 +66,7 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 		nc.mu.Lock()
 		for i, v := range nc.runningShards {
 			if v == data.ShardID {
-				nc.runningShards = append(nc.runningShards[:i], nc.runningShards[i+1:])
+				nc.runningShards = append(nc.runningShards[:i], nc.runningShards[i+1:]...)
 			}
 		}
 		nc.mu.Unlock()
@@ -75,12 +75,12 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 		data := msg.DecodedBody.(*dshardorchestrator.PrepareShardmigrationData)
 
 		nc.mu.Lock()
-		otherNodeID := nc.otherNodeID
+		otherNodeID := nc.shardMigrationOtherNodeID
 		nc.mu.Unlock()
 
-		otherNode := nc.Orchestrator.FindNodeByID(id)
+		otherNode := nc.Orchestrator.FindNodeByID(otherNodeID)
 		if otherNode == nil {
-			logrus.Error("node dissapeared in the middle of shard migration")
+			nc.Conn.Log(dshardorchestrator.LogError, nil, "node dissapeared in the middle of shard migration")
 			return
 		}
 
@@ -95,76 +95,36 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 			ShardID: data.ShardID,
 		})
 
+	case dshardorchestrator.EvtAllShardMigrationDataSent:
+		nc.mu.Lock()
+		otherNodeID := nc.shardMigrationOtherNodeID
+		nc.mu.Unlock()
+
+		otherNode := nc.Orchestrator.FindNodeByID(otherNodeID)
+		if otherNode == nil {
+			nc.Conn.Log(dshardorchestrator.LogError, nil, "node dissapeared in the middle of shard migration")
+			return
+		}
+
+		go otherNode.Conn.SendLogErr(dshardorchestrator.EvtAllShardMigrationDataSent, msg.DecodedBody)
+
 	default:
 		if msg.EvtID < 100 {
 			return
 		}
 
 		nc.mu.Lock()
-		otherNodeID := nc.otherNodeID
+		otherNodeID := nc.shardMigrationOtherNodeID
 		nc.mu.Unlock()
 
-		otherNode := nc.Orchestrator.FindNodeByID(id)
+		otherNode := nc.Orchestrator.FindNodeByID(otherNodeID)
 		if otherNode == nil {
-			logrus.Error("node dissapeared in the middle of shard migration")
+			nc.Conn.Log(dshardorchestrator.LogError, nil, "node dissapeared in the middle of shard migration")
 			return
 		}
 
 		go otherNode.Conn.SendLogErr(msg.EvtID, msg.RawBody)
 	}
-
-	// mu.Lock()
-	// defer mu.Unlock()
-
-	// switch msg.EvtID {
-	// case EvtSlaveHello:
-	// 	hello := dataInterface.(*SlaveHelloData)
-	// 	s.handleHello(hello)
-
-	// // Full slave migration with shard rescaling not implemented yet
-	// // case EvtSoftStartComplete:
-	// // 	go mainSlave.Conn.Send(EvtShutdown, nil)
-
-	// case EvtShardMigrationStart:
-	// 	data := dataInterface.(*ShardMigrationStartData)
-	// 	if data.FromThisSlave {
-	// 		logrus.Println("Main slave is ready for migration, readying slave, numshards: ", data.NumShards)
-	// 		// The main slave is ready for migration, prepare the new slave
-	// 		data.FromThisSlave = false
-
-	// 		go newSlave.Conn.SendLogErr(EvtShardMigrationStart, data)
-	// 	} else {
-	// 		logrus.Println("Both slaves are ready for migration, starting with shard 0")
-	// 		// Both slaves are ready, start the transfer
-	// 		go mainSlave.Conn.SendLogErr(EvtStopShard, &StopShardData{Shard: 0})
-	// 	}
-
-	// case EvtStopShard:
-	// 	// The main slave stopped a shard, resume it on the new slave
-	// 	data := dataInterface.(*StopShardData)
-
-	// 	logrus.Printf("Shard %d stopped, sending resume on new slave... (%d, %s) ", data.Shard, data.Sequence, data.SessionID)
-
-	// 	go newSlave.Conn.SendLogErr(EvtResume, &ResumeShardData{
-	// 		Shard:     data.Shard,
-	// 		SessionID: data.SessionID,
-	// 		Sequence:  data.Sequence,
-	// 	})
-
-	// case EvtResume:
-	// 	data := dataInterface.(*ResumeShardData)
-	// 	logrus.Printf("Shard %d resumed, Stopping next shard", data.Shard)
-
-	// 	data.Shard++
-	// 	go mainSlave.Conn.SendLogErr(EvtStopShard, &StopShardData{
-	// 		Shard:     data.Shard,
-	// 		SessionID: data.SessionID,
-	// 		Sequence:  data.Sequence,
-	// 	})
-
-	// case EvtGuildState:
-	// 	newSlave.Conn.Send(EvtGuildState, msg.Body)
-	// }
 }
 
 func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
@@ -195,7 +155,7 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 			sc, err := nc.Orchestrator.ShardCountProvider.GetTotalShardCount()
 			if err != nil {
 				nc.Orchestrator.mu.Unlock()
-				logrus.WithError(err).Error("failed fetching total shard count, retrying in a second")
+				nc.Conn.Log(dshardorchestrator.LogError, err, "failed fetching total shard count, retrying in a second")
 				time.Sleep(time.Second)
 				continue
 			}
@@ -213,7 +173,7 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 		// in this case there isn't much we can do, in the current state the orchestrator does not support varying shard counts so if this were to happen then yeah...
 		// in the future this will be handled, things like rescaling shard by doubling the count is a relatively easy process
 		// (shut down 1 shard completely, start 2 shards that combined were holding the same servers as the one shut down, works since it's doubled)
-		logrus.Error("NOT-MATCHING SHARD COUNTS!")
+		nc.Conn.Log(dshardorchestrator.LogError, nil, "NOT-MATCHING TOTAL SHARD COUNTS!")
 		nc.Orchestrator.mu.Unlock()
 		return
 	}
@@ -239,6 +199,8 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 	nc.mu.Lock()
 	nc.sessionEstablished = true
 	nc.mu.Unlock()
+
+	nc.Conn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("v%s - tot.shards: %d - running.shards: %v", data.Version, data.TotalShards, data.RunningShards))
 }
 
 // GetFullStatus returns the current status of the node
@@ -252,8 +214,8 @@ func (nc *NodeConn) GetFullStatus() *NodeStatus {
 		MigratingShard:     nc.shardMigrationShard,
 	}
 
-	status.runningShards = make([]int, len(nc.runningShards))
-	copy(status.runningShards, nc.runningShards)
+	status.Shards = make([]int, len(nc.runningShards))
+	copy(status.Shards, nc.runningShards)
 
 	if nc.shardMigrationMode == dshardorchestrator.ShardMigrationModeFrom {
 		status.MigratingTo = nc.shardMigrationOtherNodeID

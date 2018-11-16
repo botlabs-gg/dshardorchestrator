@@ -2,12 +2,8 @@ package node
 
 import (
 	"github.com/jonas747/dshardorchestrator"
-	"github.com/sirupsen/logrus"
-	"github.com/vmihailenco/msgpack"
 	"net"
-	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -15,13 +11,15 @@ var (
 	processingUserdata = new(int64)
 )
 
-// Conn is a wrapper around master.Conn, and represents a connection to the master
+// Conn represents a connection to the orchestrator
 type Conn struct {
 	baseConn *dshardorchestrator.Conn
 
 	bot                 Interface
 	orchestratorAddress string
+	logger              dshardorchestrator.Logger
 
+	// below fields are protected by the mutex
 	mu sync.Mutex
 
 	nodeVersion string
@@ -31,19 +29,23 @@ type Conn struct {
 	reconnecting bool
 	sendQueue    [][]byte
 
-	shardMigrationInProgress    bool
-	shardMigrationShard         bool
 	shardMigrationMode          dshardorchestrator.ShardMigrationMode
+	shardMigrationShard         int
 	processedUserEvents         int
 	shardmigrationTotalUserEvts int
+
+	// gateway settings
+	discordSessionID string
+	discordSequence  int64
 }
 
 // ConnectToOrchestrator attempts to connect to master ,if it fails it will launch a reconnect loop and wait until the master appears
-func ConnectToOrchestrator(bot Interface, addr string, nodeVersion string) (*Conn, error) {
+func ConnectToOrchestrator(bot Interface, addr string, nodeVersion string, logger dshardorchestrator.Logger) (*Conn, error) {
 	conn := &Conn{
 		bot:                 bot,
 		orchestratorAddress: addr,
 		nodeVersion:         nodeVersion,
+		logger:              logger,
 	}
 
 	go conn.reconnectLoop(false)
@@ -58,18 +60,20 @@ func (c *Conn) connect() error {
 	}
 
 	c.mu.Lock()
-	c.baseConn = dshardorchestrator.ConnFromNetCon(netConn)
+	c.baseConn = dshardorchestrator.ConnFromNetCon(netConn, c.logger)
 	c.baseConn.MessageHandler = c.handleMessage
 	c.baseConn.ConnClosedHanlder = c.onClosedConn
+	c.reconnecting = false
 	go c.baseConn.Listen()
 
-	go c.baseConn.SendLogErr(dshardorchestrator.EvtIdentify, &dshardorchestrator.IdentifyData{
+	go c.SendLogErr(dshardorchestrator.EvtIdentify, &dshardorchestrator.IdentifyData{
 		NodeID:        c.baseConn.GetID(),
 		RunningShards: c.nodeShards,
 		TotalShards:   c.totalShards,
 		Version:       c.nodeVersion,
-	})
+	}, false)
 
+	c.baseConn.Log(dshardorchestrator.LogInfo, nil, "sent identify")
 	c.mu.Unlock()
 
 	return nil
@@ -122,9 +126,9 @@ func (c *Conn) handleMessage(m *dshardorchestrator.Message) {
 	case dshardorchestrator.EvtPrepareShardmigration:
 		c.handlePrepareShardMigration(m.DecodedBody.(*dshardorchestrator.PrepareShardmigrationData))
 	case dshardorchestrator.EvtStartShardMigration:
-		go c.handleStartShardMigration()
+		go c.handleStartShardMigration(m.DecodedBody.(*dshardorchestrator.StartshardMigrationData))
 	case dshardorchestrator.EvtAllUserdataSent:
-		c.handleAllUserdataSent()
+		c.handleAllUserdataSent(m.DecodedBody.(*dshardorchestrator.AllUSerDataSentData))
 	}
 }
 
@@ -137,42 +141,75 @@ func (c *Conn) handleIdentified(data *dshardorchestrator.IdentifiedData) {
 	go c.bot.SessionEstablished(SessionInfo{
 		TotalShards: data.TotalShards,
 	})
+
+	c.LogLock(dshardorchestrator.LogInfo, nil, "Session established")
 }
 
 func (c *Conn) handleStartShard(data *dshardorchestrator.StartShardData) {
 	c.bot.StartShard(data.ShardID, "", 0)
-	go c.baseConn.SendLogErr(dshardorchestrator.EvtStopShard, data)
+
+	c.mu.Lock()
+	c.nodeShards = append(c.nodeShards, data.ShardID)
+	c.mu.Unlock()
+
+	go c.SendLogErr(dshardorchestrator.EvtStopShard, data, true)
 }
 
 func (c *Conn) handleStopShard(data *dshardorchestrator.StopShardData) {
+
+	c.mu.Lock()
+	for i, v := range c.nodeShards {
+		if v == data.ShardID {
+			c.nodeShards = append(c.nodeShards[:i], c.nodeShards[i+1:]...)
+			break
+		}
+	}
+	c.mu.Unlock()
+
 	c.bot.StopShard(data.ShardID)
-	go c.baseConn.SendLogErr(dshardorchestrator.EvtStopShard, data)
+
+	go c.SendLogErr(dshardorchestrator.EvtStopShard, data, true)
 }
 
 func (c *Conn) handlePrepareShardMigration(data *dshardorchestrator.PrepareShardmigrationData) {
 	if data.Origin {
+		c.mu.Lock()
+		c.shardMigrationMode = dshardorchestrator.ShardMigrationModeFrom
+		c.shardMigrationShard = data.ShardID
+		c.mu.Unlock()
+
 		session, seq := c.bot.InitializeShardTransferFrom(data.ShardID)
 		data.SessionID = session
 		data.Sequence = seq
-		go c.baseConn.SendLogErr(dshardorchestrator.EvtPrepareShardmigration, data)
+		go c.SendLogErr(dshardorchestrator.EvtPrepareShardmigration, data, true)
 	} else {
+		c.mu.Lock()
+		c.discordSessionID = data.SessionID
+		c.discordSequence = data.Sequence
+
+		c.shardMigrationMode = dshardorchestrator.ShardMigrationModeTo
+		c.shardMigrationShard = data.ShardID
+		c.processedUserEvents = 0
+		c.shardmigrationTotalUserEvts = -1
+		c.mu.Unlock()
+
 		c.bot.InitializeShardTransferTo(data.ShardID, data.SessionID, data.Sequence)
-		go c.baseConn.SendLogErr(dshardorchestrator.EvtPrepareShardmigration, data)
+		go c.SendLogErr(dshardorchestrator.EvtPrepareShardmigration, data, true)
 	}
 }
 
 func (c *Conn) handleStartShardMigration(data *dshardorchestrator.StartshardMigrationData) {
 	n := c.bot.StartShardTransferFrom(data.ShardID)
-	c.baseConn.SendLogErr(dshardorchestrator.EvtAllUserdataSent, &dshardorchestrator.AllUSerDataSentData{
+	go c.SendLogErr(dshardorchestrator.EvtAllUserdataSent, &dshardorchestrator.AllUSerDataSentData{
 		NumEvents: n,
-	})
+	}, true)
 }
 
 func (c *Conn) handleAllUserdataSent(data *dshardorchestrator.AllUSerDataSentData) {
 	c.mu.Lock()
 	c.shardmigrationTotalUserEvts = data.NumEvents
 	if data.NumEvents <= c.processedUserEvents {
-		c.finishShardMigration()
+		c.finishShardMigrationTo()
 	}
 	c.mu.Unlock()
 }
@@ -180,59 +217,38 @@ func (c *Conn) handleAllUserdataSent(data *dshardorchestrator.AllUSerDataSentDat
 func (c *Conn) handleUserEvt(msg *dshardorchestrator.Message) {
 	decoded, err := dshardorchestrator.DecodePayload(msg.EvtID, msg.RawBody)
 	if err != nil {
-		// TODO
-		logrus.WithError(err).Error("failed deocding payload for user event")
-		return
+		go c.LogLock(dshardorchestrator.LogError, err, "failed deocding payload for user event, skipping it")
+	} else {
+		c.bot.HandleUserEvent(msg.EvtID, decoded)
 	}
-
-	c.bot.HandleUserEvent(msg.EvtID, decoded)
 
 	c.mu.Lock()
 	c.processedUserEvents++
 	if c.shardmigrationTotalUserEvts > -1 && c.processedUserEvents >= c.shardmigrationTotalUserEvts {
-		c.finishShardMigration()
+		c.finishShardMigrationTo()
 	}
 	c.mu.Unlock()
 }
 
-func (c *Conn) finishShardMigration() {
-	// TODO
+func (c *Conn) finishShardMigrationTo() {
+	c.mu.Lock()
+	go c.bot.StartShard(c.shardMigrationShard, c.discordSessionID, c.discordSequence)
+
+	c.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
+	c.shardMigrationShard = -1
+	c.shardmigrationTotalUserEvts = -1
+	c.discordSequence = 0
+	c.discordSessionID = ""
+	c.mu.Unlock()
 }
 
 func (c *Conn) handleShutdown() {
 	c.bot.Shutdown()
 }
 
-// func (c *Conn) handleGuildState(body []byte) {
-// 	defer func() {
-// 		atomic.AddInt64(processingUserdata, -1)
-// 	}()
-
-// 	var dest master.GuildStateData
-// 	err := msgpack.Unmarshal(body, &dest)
-// 	if err != nil {
-// 		logrus.WithError(err).Error("Failed decoding guildstate")
-// 	}
-
-// 	c.bot.LoadGuildState(&dest)
-// }
-
-// func (c *Conn) handleResume(data *master.ResumeShardData) {
-// 	logrus.Println("Got resume event")
-
-// 	// Wait for remaining guild states to be loaded before we resume, since they're handled concurrently
-// 	for atomic.LoadInt64(processingUserdata) > 0 {
-// 		runtime.Gosched()
-// 	}
-
-// 	c.bot.StartShard(data.Shard, data.SessionID, data.Sequence)
-// 	time.Sleep(time.Second)
-// 	c.SendLogErr(master.EvtResume, data, true)
-// }
-
 // Send sends the message to the master, if the connection is closed it will queue the message if queueFailed is set
-func (c *Conn) Send(evtID master.EventType, body interface{}, queueFailed bool) error {
-	encoded, err := master.EncodeEvent(evtID, body)
+func (c *Conn) Send(evtID dshardorchestrator.EventType, body interface{}, queueFailed bool) error {
+	encoded, err := dshardorchestrator.EncodeMessage(evtID, body)
 	if err != nil {
 		return err
 	}
@@ -253,9 +269,15 @@ func (c *Conn) Send(evtID master.EventType, body interface{}, queueFailed bool) 
 	return err
 }
 
-func (c *Conn) SendLogErr(evtID master.EventType, body interface{}, queueFailed bool) {
+func (c *Conn) SendLogErr(evtID dshardorchestrator.EventType, body interface{}, queueFailed bool) {
 	err := c.Send(evtID, body, queueFailed)
 	if err != nil {
-		logrus.WithError(err).Error("[SLAVE] Failed sending message to master")
+		c.LogLock(dshardorchestrator.LogError, err, "failed sending message to orchestrator")
 	}
+}
+
+func (c *Conn) LogLock(level dshardorchestrator.LogLevel, err error, msg string) {
+	c.mu.Lock()
+	c.baseConn.Log(level, err, msg)
+	c.mu.Unlock()
 }
