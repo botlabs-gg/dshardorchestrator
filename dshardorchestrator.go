@@ -28,7 +28,8 @@ type Logger interface {
 var StdLogInstance = &StdLogger{Level: LogInfo}
 
 type StdLogger struct {
-	Level LogLevel
+	Level  LogLevel
+	Prefix string
 }
 
 func (stdl *StdLogger) Log(level LogLevel, message string) {
@@ -48,5 +49,5 @@ func (stdl *StdLogger) Log(level LogLevel, message string) {
 		strLevel = "DEBG"
 	}
 
-	log.Printf("[%s] %s", strLevel, message)
+	log.Printf("[%s] %s%s", strLevel, stdl.Prefix, message)
 }

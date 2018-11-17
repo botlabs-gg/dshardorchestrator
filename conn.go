@@ -38,6 +38,10 @@ func ConnFromNetCon(conn net.Conn, logger Logger) *Conn {
 	return c
 }
 
+func (c *Conn) Close() {
+	c.netConn.Close()
+}
+
 // Listen starts listening for events on the connection
 func (c *Conn) Listen() {
 	c.Log(LogInfo, nil, "started listening for events...")
@@ -67,8 +71,6 @@ func (c *Conn) Listen() {
 			return
 		}
 
-		c.Log(LogDebug, err, "read new event id")
-
 		// Read the body length
 		_, err = c.netConn.Read(lenBuf)
 		if err != nil {
@@ -76,12 +78,10 @@ func (c *Conn) Listen() {
 			return
 		}
 
-		c.Log(LogDebug, err, "read new payload length")
-
 		id := EventType(binary.LittleEndian.Uint32(idBuf))
 		l := binary.LittleEndian.Uint32(lenBuf)
 
-		c.Log(LogDebug, err, fmt.Sprintf("inc message evt.id: %d, payload lenght: %d", id, l))
+		c.Log(LogDebug, err, fmt.Sprintf("inc message evt: %s, payload lenght: %d", id.String(), l))
 
 		body := make([]byte, int(l))
 		if l > 0 {

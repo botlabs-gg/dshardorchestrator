@@ -49,6 +49,14 @@ func (nc *NodeConn) listen() {
 	nc.Conn.Listen()
 }
 
+func (nc *NodeConn) removeShard(shardID int) {
+	for i, v := range nc.runningShards {
+		if v == shardID {
+			nc.runningShards = append(nc.runningShards[:i], nc.runningShards[i+1:]...)
+		}
+	}
+}
+
 // Handle incoming messages
 func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 	switch msg.EvtID {
@@ -64,11 +72,7 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 	case dshardorchestrator.EvtStopShard:
 		data := msg.DecodedBody.(*dshardorchestrator.StopShardData)
 		nc.mu.Lock()
-		for i, v := range nc.runningShards {
-			if v == data.ShardID {
-				nc.runningShards = append(nc.runningShards[:i], nc.runningShards[i+1:]...)
-			}
-		}
+		nc.removeShard(data.ShardID)
 		nc.mu.Unlock()
 
 	case dshardorchestrator.EvtPrepareShardmigration:
@@ -85,17 +89,20 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 		}
 
 		if data.Origin {
+			nc.mu.Lock()
+			nc.removeShard(data.ShardID)
+			nc.mu.Unlock()
+
 			data.Origin = false
 			go otherNode.Conn.SendLogErr(dshardorchestrator.EvtPrepareShardmigration, data)
 			return
 		}
-
 		// start sending state data
 		go otherNode.Conn.SendLogErr(dshardorchestrator.EvtStartShardMigration, &dshardorchestrator.StartshardMigrationData{
 			ShardID: data.ShardID,
 		})
 
-	case dshardorchestrator.EvtAllShardMigrationDataSent:
+	case dshardorchestrator.EvtAllUserdataSent:
 		nc.mu.Lock()
 		otherNodeID := nc.shardMigrationOtherNodeID
 		nc.mu.Unlock()
@@ -106,7 +113,7 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 			return
 		}
 
-		go otherNode.Conn.SendLogErr(dshardorchestrator.EvtAllShardMigrationDataSent, msg.DecodedBody)
+		go otherNode.Conn.SendLogErr(dshardorchestrator.EvtAllUserdataSent, msg.DecodedBody)
 
 	default:
 		if msg.EvtID < 100 {
@@ -224,4 +231,10 @@ func (nc *NodeConn) GetFullStatus() *NodeStatus {
 	}
 
 	return status
+}
+
+func (nc *NodeConn) StartShard(shard int) {
+	go nc.Conn.SendLogErr(dshardorchestrator.EvtStartShard, &dshardorchestrator.StartShardData{
+		ShardID: shard,
+	})
 }

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"github.com/jonas747/discordgo"
 	"github.com/jonas747/dshardorchestrator"
 	"github.com/pkg/errors"
@@ -59,6 +60,7 @@ type Orchestrator struct {
 
 	activeMigrationFrom string
 	activeMigrationTo   string
+	netListener         net.Listener
 }
 
 func NewStandardOrchestrator(session *discordgo.Session) *Orchestrator {
@@ -77,6 +79,10 @@ func (o *Orchestrator) Start(listenAddr string) error {
 	return nil
 }
 
+func (o *Orchestrator) Stop() {
+	o.netListener.Close()
+}
+
 // openListen starts listening for slave connections on the specified address
 func (o *Orchestrator) openListen(addr string) error {
 
@@ -84,6 +90,8 @@ func (o *Orchestrator) openListen(addr string) error {
 	if err != nil {
 		return errors.WithMessage(err, "net.Listen")
 	}
+
+	o.netListener = listener
 
 	// go monitorSlaves()
 	go o.listenForNodes(listener)
@@ -96,7 +104,7 @@ func (o *Orchestrator) listenForNodes(listener net.Listener) {
 		conn, err := listener.Accept()
 		if err != nil {
 			o.Log(dshardorchestrator.LogError, err, "failed accepting incmoing connection")
-			continue
+			break
 		}
 
 		o.Log(dshardorchestrator.LogInfo, nil, "new node connection!")
@@ -238,6 +246,8 @@ func (o *Orchestrator) StartShardMigration(fromNodeID, toNodeID string, shardID 
 	toNode.shardMigrationOtherNodeID = fromNodeID
 	toNode.shardMigrationShard = shardID
 	toNode.mu.Unlock()
+
+	o.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("migrating shard %d from %q to %q", shardID, fromNodeID, toNodeID))
 
 	// everything passed, we can start the migration of the shard
 	fromNode.Conn.SendLogErr(dshardorchestrator.EvtPrepareShardmigration, &dshardorchestrator.PrepareShardmigrationData{

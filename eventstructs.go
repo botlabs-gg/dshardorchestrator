@@ -33,6 +33,6 @@ type StartshardMigrationData struct {
 	ShardID int
 }
 
-type AllUSerDataSentData struct {
+type AllUserDataSentData struct {
 	NumEvents int
 }

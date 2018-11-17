@@ -25,8 +25,7 @@ const (
 	EvtPrepareShardmigration       EventType = 6
 	EvtStartShardMigration         EventType = 7
 	EvtShardMigrationDataProcessed EventType = 8
-	EvtAllShardMigrationDataSent   EventType = 9
-	EvtAllUserdataSent             EventType = 10
+	EvtAllUserdataSent             EventType = 9
 
 	// This isn't an event per se, but this marks where user id's start
 	// events with higher ID than this are registered and fully handled by implementations of the node interface
@@ -45,11 +44,10 @@ var EventsToStringMap = map[EventType]string{
 	4: "StopShard",
 	5: "Shutdown",
 
-	6:  "PrepareShardmigration",
-	7:  "StartShardMigration",
-	8:  "ShardMigrationDataProcessed",
-	9:  "AllShardMigrationDataSent",
-	10: "AllUserdataSent",
+	6: "PrepareShardmigration",
+	7: "StartShardMigration",
+	8: "ShardMigrationDataProcessed",
+	9: "AllUserdataSent",
 }
 
 func (evt EventType) String() string {
@@ -62,8 +60,8 @@ var EvtDataMap = map[EventType]interface{}{
 	EvtIdentified:            IdentifiedData{},
 	EvtStartShard:            StartShardData{},
 	EvtPrepareShardmigration: PrepareShardmigrationData{},
-	EvtStartShardMigration:   StartShardData{},
-	EvtAllUserdataSent:       AllUSerDataSentData{},
+	EvtStartShardMigration:   StartshardMigrationData{},
+	EvtAllUserdataSent:       AllUserDataSentData{},
 }
 
 // RegisterUserEvent registers a new user event to be used in shard migration for example

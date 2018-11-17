@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"github.com/jonas747/dshardorchestrator"
 	"net"
 	"sync"
@@ -79,6 +80,13 @@ func (c *Conn) connect() error {
 	return nil
 }
 
+func (c *Conn) Close() {
+	c.mu.Lock()
+	c.reconnecting = true
+	c.baseConn.Close()
+	c.mu.Unlock()
+}
+
 func (c *Conn) onClosedConn() {
 	go c.reconnectLoop(true)
 }
@@ -128,7 +136,7 @@ func (c *Conn) handleMessage(m *dshardorchestrator.Message) {
 	case dshardorchestrator.EvtStartShardMigration:
 		go c.handleStartShardMigration(m.DecodedBody.(*dshardorchestrator.StartshardMigrationData))
 	case dshardorchestrator.EvtAllUserdataSent:
-		c.handleAllUserdataSent(m.DecodedBody.(*dshardorchestrator.AllUSerDataSentData))
+		c.handleAllUserdataSent(m.DecodedBody.(*dshardorchestrator.AllUserDataSentData))
 	}
 }
 
@@ -142,7 +150,7 @@ func (c *Conn) handleIdentified(data *dshardorchestrator.IdentifiedData) {
 		TotalShards: data.TotalShards,
 	})
 
-	c.LogLock(dshardorchestrator.LogInfo, nil, "Session established")
+	c.baseConn.Log(dshardorchestrator.LogInfo, nil, "Session established")
 }
 
 func (c *Conn) handleStartShard(data *dshardorchestrator.StartShardData) {
@@ -150,20 +158,27 @@ func (c *Conn) handleStartShard(data *dshardorchestrator.StartShardData) {
 
 	c.mu.Lock()
 	c.nodeShards = append(c.nodeShards, data.ShardID)
+	c.baseConn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("starting shard #%d", data.ShardID))
 	c.mu.Unlock()
 
-	go c.SendLogErr(dshardorchestrator.EvtStopShard, data, true)
+	go c.SendLogErr(dshardorchestrator.EvtStartShard, data, true)
+}
+
+func (c *Conn) removeShard(shardID int) {
+	for i, v := range c.nodeShards {
+		if v == shardID {
+			c.nodeShards = append(c.nodeShards[:i], c.nodeShards[i+1:]...)
+			break
+		}
+	}
 }
 
 func (c *Conn) handleStopShard(data *dshardorchestrator.StopShardData) {
 
 	c.mu.Lock()
-	for i, v := range c.nodeShards {
-		if v == data.ShardID {
-			c.nodeShards = append(c.nodeShards[:i], c.nodeShards[i+1:]...)
-			break
-		}
-	}
+	c.removeShard(data.ShardID)
+
+	c.baseConn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("stopping shard #%d", data.ShardID))
 	c.mu.Unlock()
 
 	c.bot.StopShard(data.ShardID)
@@ -176,6 +191,7 @@ func (c *Conn) handlePrepareShardMigration(data *dshardorchestrator.PrepareShard
 		c.mu.Lock()
 		c.shardMigrationMode = dshardorchestrator.ShardMigrationModeFrom
 		c.shardMigrationShard = data.ShardID
+		c.removeShard(data.ShardID)
 		c.mu.Unlock()
 
 		session, seq := c.bot.InitializeShardTransferFrom(data.ShardID)
@@ -200,12 +216,12 @@ func (c *Conn) handlePrepareShardMigration(data *dshardorchestrator.PrepareShard
 
 func (c *Conn) handleStartShardMigration(data *dshardorchestrator.StartshardMigrationData) {
 	n := c.bot.StartShardTransferFrom(data.ShardID)
-	go c.SendLogErr(dshardorchestrator.EvtAllUserdataSent, &dshardorchestrator.AllUSerDataSentData{
+	go c.SendLogErr(dshardorchestrator.EvtAllUserdataSent, &dshardorchestrator.AllUserDataSentData{
 		NumEvents: n,
 	}, true)
 }
 
-func (c *Conn) handleAllUserdataSent(data *dshardorchestrator.AllUSerDataSentData) {
+func (c *Conn) handleAllUserdataSent(data *dshardorchestrator.AllUserDataSentData) {
 	c.mu.Lock()
 	c.shardmigrationTotalUserEvts = data.NumEvents
 	if data.NumEvents <= c.processedUserEvents {
@@ -231,15 +247,17 @@ func (c *Conn) handleUserEvt(msg *dshardorchestrator.Message) {
 }
 
 func (c *Conn) finishShardMigrationTo() {
-	c.mu.Lock()
 	go c.bot.StartShard(c.shardMigrationShard, c.discordSessionID, c.discordSequence)
+
+	go c.SendLogErr(dshardorchestrator.EvtStartShard, &dshardorchestrator.StartShardData{
+		ShardID: c.shardMigrationShard,
+	}, true)
 
 	c.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
 	c.shardMigrationShard = -1
 	c.shardmigrationTotalUserEvts = -1
 	c.discordSequence = 0
 	c.discordSessionID = ""
-	c.mu.Unlock()
 }
 
 func (c *Conn) handleShutdown() {
@@ -280,4 +298,12 @@ func (c *Conn) LogLock(level dshardorchestrator.LogLevel, err error, msg string)
 	c.mu.Lock()
 	c.baseConn.Log(level, err, msg)
 	c.mu.Unlock()
+}
+
+func (c *Conn) GetIDLock() string {
+	c.mu.Lock()
+	id := c.baseConn.GetID()
+	c.mu.Unlock()
+
+	return id
 }
