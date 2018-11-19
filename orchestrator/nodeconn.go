@@ -14,12 +14,15 @@ type NodeConn struct {
 	Orchestrator *Orchestrator
 	Conn         *dshardorchestrator.Conn
 
+	connected      bool
+	disconnectedAt time.Time
+
 	// below fields are protected by this mutex
 	mu sync.Mutex
 
 	sessionEstablished bool
-
-	runningShards []int
+	version            string
+	runningShards      []int
 
 	shardMigrationOtherNodeID   string
 	shardMigrationShard         int
@@ -35,11 +38,16 @@ func (o *Orchestrator) NewNodeConn(netConn net.Conn) *NodeConn {
 	sc := &NodeConn{
 		Conn:         dshardorchestrator.ConnFromNetCon(netConn, o.Logger),
 		Orchestrator: o,
+		connected:    true,
 	}
 
 	sc.Conn.MessageHandler = sc.handleMessage
 	sc.Conn.ConnClosedHanlder = func() {
 		// TODO
+		sc.mu.Lock()
+		sc.connected = false
+		sc.disconnectedAt = time.Now()
+		sc.mu.Unlock()
 	}
 
 	return sc
@@ -66,7 +74,9 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 	case dshardorchestrator.EvtStartShard:
 		data := msg.DecodedBody.(*dshardorchestrator.StartShardData)
 		nc.mu.Lock()
-		nc.runningShards = append(nc.runningShards, data.ShardID)
+		if !dshardorchestrator.ContainsInt(nc.runningShards, data.ShardID) {
+			nc.runningShards = append(nc.runningShards, data.ShardID)
+		}
 		nc.mu.Unlock()
 
 	case dshardorchestrator.EvtStopShard:
@@ -134,7 +144,7 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 	}
 }
 
-func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
+func (nc *NodeConn) validateTotalShards(data *dshardorchestrator.IdentifyData) (ok bool, totalShards int) {
 	nc.Orchestrator.mu.Lock()
 	if data.TotalShards == 0 && nc.Orchestrator.totalShards == 0 {
 		// we may need to fetch a fresh shard count, but wait 10 seconds to see if another node with already set shard count connects
@@ -172,7 +182,7 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 		}
 	}
 
-	totalShards := nc.Orchestrator.totalShards
+	totalShards = nc.Orchestrator.totalShards
 	if data.TotalShards > 0 && nc.Orchestrator.totalShards == 0 {
 		nc.Orchestrator.totalShards = data.TotalShards
 		totalShards = data.TotalShards
@@ -182,10 +192,18 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 		// (shut down 1 shard completely, start 2 shards that combined were holding the same servers as the one shut down, works since it's doubled)
 		nc.Conn.Log(dshardorchestrator.LogError, nil, "NOT-MATCHING TOTAL SHARD COUNTS!")
 		nc.Orchestrator.mu.Unlock()
-		return
+		return false, totalShards
 	}
 
 	nc.Orchestrator.mu.Unlock()
+	return true, totalShards
+}
+
+func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
+	valid, totalShards := nc.validateTotalShards(data)
+	if !valid {
+		return
+	}
 
 	// check if this connection holds a "preliminary" id instead of a global unique one
 	if strings.HasPrefix(data.NodeID, "unknown") {
@@ -193,6 +211,16 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 		nc.Conn.ID.Store(newID)
 	} else {
 		nc.Conn.ID.Store(data.NodeID)
+
+		// check if were holding a duplicates
+		nc.Orchestrator.mu.Lock()
+		for i, n := range nc.Orchestrator.connectedNodes {
+			if n.Conn.GetID() == data.NodeID && n != nc {
+				go n.Conn.Close()
+				nc.Orchestrator.connectedNodes = append(nc.Orchestrator.connectedNodes[:i], nc.Orchestrator.connectedNodes[i+1:]...)
+				break
+			}
+		}
 	}
 
 	// after this we have sucessfully established a session
@@ -204,7 +232,9 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 	go nc.Conn.SendLogErr(dshardorchestrator.EvtIdentified, resp)
 
 	nc.mu.Lock()
+	nc.version = data.Version
 	nc.sessionEstablished = true
+	nc.runningShards = data.RunningShards
 	nc.mu.Unlock()
 
 	nc.Conn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("v%s - tot.shards: %d - running.shards: %v", data.Version, data.TotalShards, data.RunningShards))
@@ -219,6 +249,9 @@ func (nc *NodeConn) GetFullStatus() *NodeStatus {
 		ID:                 nc.Conn.GetID(),
 		SessionEstablished: nc.sessionEstablished,
 		MigratingShard:     nc.shardMigrationShard,
+		Connected:          nc.connected,
+		DisconnectedAt:     nc.disconnectedAt,
+		Version:            nc.version,
 	}
 
 	status.Shards = make([]int, len(nc.runningShards))
@@ -237,4 +270,18 @@ func (nc *NodeConn) StartShard(shard int) {
 	go nc.Conn.SendLogErr(dshardorchestrator.EvtStartShard, &dshardorchestrator.StartShardData{
 		ShardID: shard,
 	})
+}
+
+func (nc *NodeConn) StopShard(shard int) {
+	go nc.Conn.SendLogErr(dshardorchestrator.EvtStopShard, &dshardorchestrator.StopShardData{
+		ShardID: shard,
+	})
+}
+
+func (nc *NodeConn) Shutdown() {
+	nc.mu.Lock()
+	nc.shuttingDown = true
+	go nc.Conn.SendLogErr(dshardorchestrator.EvtShutdown, nil)
+	nc.mu.Unlock()
+	return
 }

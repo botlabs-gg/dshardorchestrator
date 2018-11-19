@@ -53,6 +53,8 @@ type Orchestrator struct {
 	// and you can still go over it if you manually start shards on a node
 	MaxShardsPerNode int
 
+	monitor *monitor
+
 	// below fields are protected by the following mutex
 	mu             sync.Mutex
 	connectedNodes []*NodeConn
@@ -65,22 +67,38 @@ type Orchestrator struct {
 
 func NewStandardOrchestrator(session *discordgo.Session) *Orchestrator {
 	return &Orchestrator{
-		NodeIDProvider:     &StdNodeIDProvider{},
+		NodeIDProvider:     NewNodeIDProvider(),
 		ShardCountProvider: &StdShardCountProvider{DiscordSession: session},
 	}
 }
 
+// Start will start the orchestrator, and start to listen fro clients on the specified address
+// IMPORTANT: opening this up to the outer internet is bad because there's no authentication.
 func (o *Orchestrator) Start(listenAddr string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	err := o.openListen(listenAddr)
 	if err != nil {
 		return err
 	}
 
+	o.monitor = &monitor{
+		orchestrator: o,
+		stopChan:     make(chan bool),
+	}
+	go o.monitor.run()
+
 	return nil
 }
 
+// Stop will stop the orchestrator and the monitor
 func (o *Orchestrator) Stop() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	o.netListener.Close()
+	o.monitor.stop()
 }
 
 // openListen starts listening for slave connections on the specified address
@@ -118,26 +136,6 @@ func (o *Orchestrator) listenForNodes(listener net.Listener) {
 	}
 }
 
-// func monitorSlaves() {
-// 	ticker := time.NewTicker(time.Second)
-// 	lastTimeSawSlave := time.Now()
-
-// 	for {
-// 		<-ticker.C
-// 		mu.Lock()
-// 		if mainSlave != nil {
-// 			lastTimeSawSlave = time.Now()
-// 		}
-// 		mu.Unlock()
-
-// 		if time.Since(lastTimeSawSlave) > time.Second*15 {
-// 			logrus.Println("Haven't seen a slave in 15 seconds, starting a new one now")
-// 			go StartSlave()
-// 			lastTimeSawSlave = time.Now()
-// 		}
-// 	}
-// }
-
 func (o *Orchestrator) FindNodeByID(id string) *NodeConn {
 	o.mu.Lock()
 	for _, v := range o.connectedNodes {
@@ -153,14 +151,18 @@ func (o *Orchestrator) FindNodeByID(id string) *NodeConn {
 
 type NodeStatus struct {
 	ID                 string
+	Version            string
 	SessionEstablished bool
 	Shards             []int
+	Connected          bool
+	DisconnectedAt     time.Time
 
 	MigratingFrom  string
 	MigratingTo    string
 	MigratingShard int
 }
 
+// GetFullNodesStatus returns the full status of all nodes
 func (o *Orchestrator) GetFullNodesStatus() []*NodeStatus {
 	result := make([]*NodeStatus, 0)
 
@@ -183,9 +185,28 @@ var (
 )
 
 // StartShardMigration attempts to start a shard migration, moving shardID from a origin node to a destination node
-func (o *Orchestrator) StartShardMigration(fromNodeID, toNodeID string, shardID int) error {
-	fromNode := o.FindNodeByID(fromNodeID)
+func (o *Orchestrator) StartShardMigration(toNodeID string, shardID int) error {
+
+	// find the origin node
+	fromNodeID := ""
+
+	status := o.GetFullNodesStatus()
+OUTER:
+	for _, n := range status {
+		if !n.Connected {
+			continue
+		}
+
+		for _, s := range n.Shards {
+			if s == shardID {
+				fromNodeID = n.ID
+				break OUTER
+			}
+		}
+	}
+
 	toNode := o.FindNodeByID(toNodeID)
+	fromNode := o.FindNodeByID(fromNodeID)
 
 	if fromNode == nil {
 		return ErrUnknownFromNode
@@ -258,6 +279,7 @@ func (o *Orchestrator) StartShardMigration(fromNodeID, toNodeID string, shardID 
 	return nil
 }
 
+// Log will log to the designated logger or he standard logger
 func (o *Orchestrator) Log(level dshardorchestrator.LogLevel, err error, msg string) {
 	if err != nil {
 		msg = msg + ": " + err.Error()
@@ -267,5 +289,196 @@ func (o *Orchestrator) Log(level dshardorchestrator.LogLevel, err error, msg str
 		dshardorchestrator.StdLogInstance.Log(level, msg)
 	} else {
 		o.Logger.Log(level, msg)
+	}
+}
+
+var (
+	ErrNoNodeLauncher = errors.New("orchestrator.NodeLauncher is nil")
+)
+
+// StartNewNode will launch a new node, it will not wait for it to connect
+func (o *Orchestrator) StartNewNode() error {
+	if o.NodeLauncher == nil {
+		return ErrNoNodeLauncher
+	}
+
+	return o.NodeLauncher.LaunchNewNode()
+}
+
+var (
+	ErrShardAlreadyRunning = errors.New("shard already running")
+	ErrUnknownNode         = errors.New("unknown node")
+)
+
+// StartShard will start the specified shard on the specified node
+// it will return ErrShardAlreadyRunning if the shard is running on another node already
+func (o *Orchestrator) StartShard(nodeID string, shard int) error {
+	fullStatus := o.GetFullNodesStatus()
+	for _, v := range fullStatus {
+		if !v.Connected {
+			continue
+		}
+
+		if dshardorchestrator.ContainsInt(v.Shards, shard) {
+			return ErrShardAlreadyRunning
+		}
+	}
+
+	node := o.FindNodeByID(nodeID)
+	if node == nil {
+		return ErrUnknownNode
+	}
+
+	node.StartShard(shard)
+	return nil
+}
+
+// StopShard will stop the specified shard on whatever node it's running on, or do nothing if it's not running
+func (o *Orchestrator) StopShard(shard int) error {
+	fullStatus := o.GetFullNodesStatus()
+	for _, v := range fullStatus {
+		if !v.Connected {
+			continue
+		}
+
+		if dshardorchestrator.ContainsInt(v.Shards, shard) {
+			// bingo
+			node := o.FindNodeByID(v.ID)
+			if node == nil {
+				return ErrUnknownNode
+			}
+
+			node.StopShard(shard)
+		}
+	}
+
+	return nil
+}
+
+// func (o *Orchestrator) FullMigrationToNewNodes() error {
+// 	if o.NodeLauncher == nil {
+// 		return ErrNoNodeLauncher
+// 	}
+
+// 	oldNodes := o.GetFullNodesStatus()
+
+// 	for _, node := range oldNodes {
+// 		newNode, err := o.startWaitForNode()
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 	}
+// }
+
+// func (o *Orchestrator) startWaitForNode() (string, error) {
+
+// }
+
+// MigrateFullNode migrates all the shards on the origin node to the destination node
+// optionally also shutting the origin node down at the end
+func (o *Orchestrator) MigrateFullNode(fromNode string, toNodeID string, shutdownOldNode bool) error {
+	nodeFrom := o.FindNodeByID(fromNode)
+	if nodeFrom == nil {
+		return ErrUnknownFromNode
+	}
+
+	toNode := o.FindNodeByID(toNodeID)
+	if toNode == nil {
+		return ErrUnknownToNode
+	}
+
+	nodeFrom.mu.Lock()
+	shards := make([]int, len(nodeFrom.runningShards))
+	copy(shards, nodeFrom.runningShards)
+	nodeFrom.mu.Unlock()
+
+	o.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("starting full node migration from %s to %s, n-shards: %d", fromNode, toNode, len(shards)))
+
+	for _, s := range shards {
+		err := o.StartShardMigration(toNodeID, s)
+		if err != nil {
+			return err
+		}
+
+		// wait for it to be moved before we start the next one
+		o.WaitForShardMigration(fromNode, toNodeID, s)
+
+		// wait a bit extra to allow for some time ot catch up on events processing
+		time.Sleep(time.Second)
+	}
+
+	if shutdownOldNode {
+		return o.ShutdownNode(fromNode)
+	}
+
+	return nil
+}
+
+// ShutdownNode shuts down the specified node
+func (o *Orchestrator) ShutdownNode(nodeID string) error {
+	node := o.FindNodeByID(nodeID)
+	if node == nil {
+		return ErrUnknownNode
+	}
+
+	node.Shutdown()
+	return nil
+}
+
+// WaitForShardMigration blocks until a shard migration is complete
+func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string, shardID int) {
+	// wait for the shard to dissapear on the origin node
+	for {
+		time.Sleep(time.Second)
+
+		fromNode := o.FindNodeByID(fromNodeID)
+		if fromNode == nil {
+			continue
+		}
+
+		fromNode.mu.Lock()
+		status := fromNode.GetFullStatus()
+		fromNode.mu.Unlock()
+
+		if !dshardorchestrator.ContainsInt(status.Shards, shardID) {
+			break
+		}
+	}
+
+	// wait for it to appear on the new node
+	for {
+		time.Sleep(time.Millisecond * 100)
+
+		toNode := o.FindNodeByID(toNodeID)
+		if toNode == nil {
+			continue
+		}
+
+		toNode.mu.Lock()
+		status := toNode.GetFullStatus()
+		toNode.mu.Unlock()
+
+		if dshardorchestrator.ContainsInt(status.Shards, shardID) {
+			break
+		}
+	}
+
+	// AND FINALLY just for safe measure, wait for it to not be in the migrating state
+	for {
+		time.Sleep(time.Millisecond * 100)
+
+		toNode := o.FindNodeByID(toNodeID)
+		if toNode == nil {
+			continue
+		}
+
+		toNode.mu.Lock()
+		status := toNode.GetFullStatus()
+		toNode.mu.Unlock()
+
+		if status.MigratingFrom == "" {
+			break
+		}
 	}
 }

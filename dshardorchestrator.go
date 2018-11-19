@@ -51,3 +51,13 @@ func (stdl *StdLogger) Log(level LogLevel, message string) {
 
 	log.Printf("[%s] %s%s", strLevel, stdl.Prefix, message)
 }
+
+func ContainsInt(slice []int, i int) bool {
+	for _, v := range slice {
+		if v == i {
+			return true
+		}
+	}
+
+	return false
+}

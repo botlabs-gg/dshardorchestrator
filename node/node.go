@@ -157,7 +157,9 @@ func (c *Conn) handleStartShard(data *dshardorchestrator.StartShardData) {
 	c.bot.StartShard(data.ShardID, "", 0)
 
 	c.mu.Lock()
-	c.nodeShards = append(c.nodeShards, data.ShardID)
+	if !dshardorchestrator.ContainsInt(c.nodeShards, data.ShardID) {
+		c.nodeShards = append(c.nodeShards, data.ShardID)
+	}
 	c.baseConn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("starting shard #%d", data.ShardID))
 	c.mu.Unlock()
 

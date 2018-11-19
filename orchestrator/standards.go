@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"github.com/jonas747/discordgo"
 	"sync/atomic"
@@ -33,8 +35,13 @@ func NewNodeIDProvider() *StdNodeIDProvider {
 }
 
 func (nid *StdNodeIDProvider) GenerateID() string {
+	b := make([]byte, 8)
 	tns := time.Now().UnixNano()
+	binary.LittleEndian.PutUint64(b, uint64(tns))
+
 	c := atomic.AddInt64(nid.Counter, 1)
 
-	return fmt.Sprintf("%d-#%d", tns, c)
+	tb64 := base64.URLEncoding.EncodeToString(b)
+
+	return fmt.Sprintf("%s-%d", tb64, c)
 }

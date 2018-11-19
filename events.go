@@ -51,7 +51,11 @@ var EventsToStringMap = map[EventType]string{
 }
 
 func (evt EventType) String() string {
-	return EventsToStringMap[evt]
+	if s, ok := EventsToStringMap[evt]; ok {
+		return s
+	}
+
+	return "Unknown"
 }
 
 // Mapping of events to structs for their data
@@ -59,6 +63,7 @@ var EvtDataMap = map[EventType]interface{}{
 	EvtIdentify:              IdentifyData{},
 	EvtIdentified:            IdentifiedData{},
 	EvtStartShard:            StartShardData{},
+	EvtStopShard:             StopShardData{},
 	EvtPrepareShardmigration: PrepareShardmigrationData{},
 	EvtStartShardMigration:   StartshardMigrationData{},
 	EvtAllUserdataSent:       AllUserDataSentData{},

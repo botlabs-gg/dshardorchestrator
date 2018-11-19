@@ -10,7 +10,7 @@ import (
 
 var testServerAddr = "127.0.0.1:7447"
 var testLoggerNode = &dshardorchestrator.StdLogger{Level: dshardorchestrator.LogDebug, Prefix: "node: "}
-var testLoggerOrchestrator = &dshardorchestrator.StdLogger{Level: dshardorchestrator.LogDebug, Prefix: "orchestrator: "}
+var testLoggerOrchestrator = &dshardorchestrator.StdLogger{Level: dshardorchestrator.LogInfo, Prefix: "orchestrator: "}
 
 type mockShardCountProvider struct {
 	NumShards int
@@ -142,7 +142,7 @@ func TestMigrateShard(t *testing.T) {
 	time.Sleep(time.Millisecond * 250)
 
 	// perform the migration
-	err = orchestrator.StartShardMigration(on1.Conn.GetID(), n2.GetIDLock(), 3)
+	err = orchestrator.StartShardMigration(n2.GetIDLock(), 3)
 	if err != nil {
 		t.Fatal("failed performing migration: ", err.Error())
 	}
