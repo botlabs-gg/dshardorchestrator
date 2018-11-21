@@ -54,7 +54,7 @@ func (ra *RESTAPI) handlePOSTShutdownNode(c *gin.Context) {
 	fmt.Println("REST: should shut down " + node)
 
 	err := ra.orchestrator.ShutdownNode(node)
-	sendBasicResponse(c, err, "stopped node sucessfully")
+	sendBasicResponse(c, err, "stopped node successfully")
 }
 
 func (ra *RESTAPI) handlePOSTMigrateShard(c *gin.Context) {
@@ -68,7 +68,7 @@ func (ra *RESTAPI) handlePOSTMigrateShard(c *gin.Context) {
 
 	parsedShardID, err := strconv.Atoi(shardIDStr)
 	if err != nil {
-		sendBasicResponse(c, errors.WithMessage(err, "parsed-shardid"), "")
+		sendBasicResponse(c, errors.WithMessage(err, "parse-shardid"), "")
 		return
 	}
 

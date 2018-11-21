@@ -7,6 +7,9 @@ import (
 	"github.com/jonas747/dshardorchestrator/orchestrator/rest"
 	"log"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/urfave/cli"
 )
@@ -38,14 +41,19 @@ func main() {
 			Action: StartNode,
 		},
 		cli.Command{
-			Name:  "shutdownnode",
-			Usage: "shuts down a node",
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name: "node",
-				},
-			},
+			Name:   "shutdownnode",
+			Usage:  "shuts down a node",
 			Action: ShutdownNode,
+		},
+		cli.Command{
+			Name:   "migrateshard",
+			Usage:  "migrates all shards on a node to another one",
+			Action: MigrateShard,
+		},
+		cli.Command{
+			Name:   "migratenode",
+			Usage:  "migrates all shards on a node to another one",
+			Action: MigrateNode,
 		},
 	}
 
@@ -76,10 +84,10 @@ func StatusCmd(c *cli.Context) error {
 		if n.MigratingFrom != "" {
 			rowExtra = fmt.Sprintf("migrating %3d from %s", n.MigratingShard, n.MigratingFrom)
 		} else if n.MigratingTo != "" {
-			rowExtra = fmt.Sprintf("migrating %3d to %s", n.MigratingShard, n.MigratingTo)
+			rowExtra = fmt.Sprintf("migrating %3d to   %s", n.MigratingShard, n.MigratingTo)
 		}
 
-		tb.AppendRow(table.Row{n.ID, n.Version, n.Connected, len(n.Shards), rowExtra})
+		tb.AppendRow(table.Row{n.ID, n.Version, n.Connected, PrettyFormatNumberList(n.Shards), rowExtra})
 	}
 
 	fmt.Println(tb.Render())
@@ -110,4 +118,86 @@ func ShutdownNode(c *cli.Context) error {
 
 	fmt.Println(msg)
 	return nil
+}
+
+func MigrateNode(c *cli.Context) error {
+	args := c.Args()
+	if len(args) < 2 {
+		return errors.New("usage: migratenode origin-node-id target-node-id")
+	}
+
+	origin := args[0]
+	target := args[1]
+
+	fmt.Printf("migrating all shards on %s to %s, this migght take a while....\n", origin, target)
+
+	msg, err := restClient.MigrateNode(origin, target, false)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(msg)
+	return nil
+}
+
+func MigrateShard(c *cli.Context) error {
+	args := c.Args()
+	if len(args) < 2 {
+		return errors.New("usage: migrateshard shard-id node-id")
+	}
+
+	shardIDStr := args[0]
+	targetNode := args[1]
+
+	shardID, err := strconv.ParseInt(shardIDStr, 10, 32)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("migrating shard %d to %s...\n", shardID, targetNode)
+
+	msg, err := restClient.MigrateShard(targetNode, int(shardID))
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(msg)
+	return nil
+}
+
+func PrettyFormatNumberList(numbers []int) string {
+	sort.Ints(numbers)
+
+	var out []string
+
+	last := 0
+	seqStart := 0
+	for i, n := range numbers {
+		if i == 0 {
+			last = n
+			seqStart = n
+			continue
+		}
+
+		if n > last+1 {
+			// break in sequence
+			if seqStart != last {
+				out = append(out, fmt.Sprintf("%d - %d", seqStart, last))
+			} else {
+				out = append(out, fmt.Sprintf("%d", last))
+			}
+
+			seqStart = n
+		}
+
+		last = n
+	}
+
+	if seqStart != last {
+		out = append(out, fmt.Sprintf("%d - %d", seqStart, last))
+	} else {
+		out = append(out, fmt.Sprintf("%d", last))
+	}
+
+	return strings.Join(out, ", ")
 }

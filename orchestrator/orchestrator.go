@@ -118,6 +118,7 @@ func (o *Orchestrator) openListen(addr string) error {
 }
 
 func (o *Orchestrator) listenForNodes(listener net.Listener) {
+	o.Log(dshardorchestrator.LogInfo, nil, "listening for incoming nodes on: "+listener.Addr().String())
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -393,7 +394,7 @@ func (o *Orchestrator) MigrateFullNode(fromNode string, toNodeID string, shutdow
 	copy(shards, nodeFrom.runningShards)
 	nodeFrom.mu.Unlock()
 
-	o.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("starting full node migration from %s to %s, n-shards: %d", fromNode, toNode, len(shards)))
+	o.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("starting full node migration from %s to %s, n-shards: %d", fromNode, toNodeID, len(shards)))
 
 	for _, s := range shards {
 		err := o.StartShardMigration(toNodeID, s)
@@ -437,9 +438,7 @@ func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string,
 			continue
 		}
 
-		fromNode.mu.Lock()
 		status := fromNode.GetFullStatus()
-		fromNode.mu.Unlock()
 
 		if !dshardorchestrator.ContainsInt(status.Shards, shardID) {
 			break
@@ -455,9 +454,7 @@ func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string,
 			continue
 		}
 
-		toNode.mu.Lock()
 		status := toNode.GetFullStatus()
-		toNode.mu.Unlock()
 
 		if dshardorchestrator.ContainsInt(status.Shards, shardID) {
 			break
@@ -473,9 +470,7 @@ func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string,
 			continue
 		}
 
-		toNode.mu.Lock()
 		status := toNode.GetFullStatus()
-		toNode.mu.Unlock()
 
 		if status.MigratingFrom == "" {
 			break

@@ -104,11 +104,17 @@ func (c *Client) MigrateShard(newNodeID string, shard int) (msg string, err erro
 	return c.handleBasicResponse(&resp)
 }
 
-func (c *Client) MigrateNode(originNodeID, newNodeID string) (msg string, err error) {
-	body := url.Values{
+func (c *Client) MigrateNode(originNodeID, newNodeID string, shutdown bool) (msg string, err error) {
+	bodyVals := url.Values{
 		"destination_node": []string{newNodeID},
 		"origin_node":      []string{originNodeID},
-	}.Encode()
+	}
+
+	if shutdown {
+		bodyVals["shutdown"] = []string{"true"}
+	}
+
+	body := bodyVals.Encode()
 
 	var resp BasicResponse
 	err = c.do("POST", "/migratenode", []byte(body), &resp)

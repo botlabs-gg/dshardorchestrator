@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"github.com/jonas747/discordgo"
 	"github.com/jonas747/dshardorchestrator"
 	"github.com/jonas747/dshardorchestrator/node"
 	"log"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -38,6 +40,8 @@ func (b *Bot) StopShard(shard int) (sessionID string, sequence int64) {
 }
 
 func (b *Bot) StartShard(shard int, sessionID string, sequence int64) {
+	nodeID := Node.GetIDLock()
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -57,6 +61,21 @@ func (b *Bot) StartShard(shard int, sessionID string, sequence int64) {
 	newSession.GatewayManager.SetSessionInfo(sessionID, sequence)
 	newSession.ShardID = shard
 	newSession.ShardCount = b.totalShards
+
+	newSession.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		if !strings.HasPrefix(m.Content, "<@232658301714825217>") && !strings.HasPrefix(m.Content, "<@!232658301714825217>") {
+			return
+		}
+
+		split := strings.SplitN(m.Content, " ", 2)
+		if len(split) < 2 {
+			return
+		}
+
+		if strings.TrimSpace(split[1]) == "shard" {
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("shard %d on node %s", s.ShardID, nodeID))
+		}
+	})
 
 	err = newSession.Open()
 	if err != nil {

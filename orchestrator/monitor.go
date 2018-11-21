@@ -13,6 +13,8 @@ type monitor struct {
 	stopChan chan bool
 
 	lastTimeLaunchedNode time.Time
+
+	shardsLastSeenTimes []time.Time
 }
 
 func (mon *monitor) run() {
@@ -62,7 +64,7 @@ func (mon *monitor) ensureTotalShards() int {
 }
 
 func (mon *monitor) tick() {
-	if !mon.orchestrator.EnsureAllShardsRunning || time.Since(mon.started) < time.Second*10 {
+	if !mon.orchestrator.EnsureAllShardsRunning {
 		// currently this is the only purpose of the monitor, it may be extended to perform more as it could be a reliable way of handling a bunch of things
 		return
 	}
@@ -72,32 +74,47 @@ func (mon *monitor) tick() {
 		return
 	}
 
+	if mon.shardsLastSeenTimes == nil {
+		mon.shardsLastSeenTimes = make([]time.Time, totalShards)
+		for i, _ := range mon.shardsLastSeenTimes {
+			mon.shardsLastSeenTimes[i] = time.Now()
+		}
+	}
+
 	runningShards := make([]bool, totalShards)
-	lastTimeConnectedShards := make([]time.Time, totalShards)
 
 	// find the disconnect times for all shards that has disconnected
 	fullNodeStatuses := mon.orchestrator.GetFullNodesStatus()
 	for _, ns := range fullNodeStatuses {
 		for _, s := range ns.Shards {
 			if !ns.Connected {
-				if runningShards[s] {
-					continue
-				} else {
-					lastTimeConnectedShards[s] = ns.DisconnectedAt
-				}
-			} else {
+				continue
+			}
+
+			if ns.Connected {
 				runningShards[s] = true
-				lastTimeConnectedShards[s] = time.Now()
+				mon.shardsLastSeenTimes[s] = time.Now()
 			}
 		}
 	}
 
 	// find out which shards to start
 	shardsToStart := make([]int, 0)
-	for i, lastTimeConnected := range lastTimeConnectedShards {
-		if !runningShards[i] && time.Since(lastTimeConnected) > mon.orchestrator.MaxNodeDowntimeBeforeRestart {
-			shardsToStart = append(shardsToStart, i)
+
+OUTER:
+	for i, lastTimeConnected := range mon.shardsLastSeenTimes {
+		if runningShards[i] || time.Since(lastTimeConnected) < mon.orchestrator.MaxNodeDowntimeBeforeRestart {
+			continue
 		}
+
+		// check if this shard is in a shard migration, in which case ignore it
+		for _, ns := range fullNodeStatuses {
+			if ns.MigratingShard == i && (ns.MigratingFrom != "" || ns.MigratingTo != "") {
+				continue OUTER
+			}
+		}
+
+		shardsToStart = append(shardsToStart, i)
 	}
 
 	if len(shardsToStart) < 1 {

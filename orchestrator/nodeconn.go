@@ -77,6 +77,11 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 		if !dshardorchestrator.ContainsInt(nc.runningShards, data.ShardID) {
 			nc.runningShards = append(nc.runningShards, data.ShardID)
 		}
+
+		if nc.shardMigrationShard == data.ShardID && nc.shardMigrationMode != dshardorchestrator.ShardMigrationModeNone {
+			nc.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
+		}
+
 		nc.mu.Unlock()
 
 	case dshardorchestrator.EvtStopShard:
@@ -115,6 +120,7 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 	case dshardorchestrator.EvtAllUserdataSent:
 		nc.mu.Lock()
 		otherNodeID := nc.shardMigrationOtherNodeID
+		nc.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
 		nc.mu.Unlock()
 
 		otherNode := nc.Orchestrator.FindNodeByID(otherNodeID)
