@@ -114,6 +114,7 @@ func (c *Conn) Listen() {
 // Send sends the specified message over the connection, marshaling the data using json
 // this locks the writer
 func (c *Conn) Send(evtID EventType, data interface{}) error {
+
 	encoded, err := EncodeMessage(evtID, data)
 	if err != nil {
 		return errors.WithMessage(err, "EncodeEvent")
@@ -122,6 +123,7 @@ func (c *Conn) Send(evtID EventType, data interface{}) error {
 	c.sendmu.Lock()
 	defer c.sendmu.Unlock()
 
+	c.Log(LogDebug, nil, fmt.Sprintf("sending evt %s, len: %d", evtID.String(), len(encoded)))
 	return c.SendNoLock(encoded)
 }
 
@@ -136,8 +138,6 @@ func (c *Conn) SendLogErr(evtID EventType, data interface{}) {
 // SendNoLock sends the specified message over the connection, marshaling the data using json
 // This does no locking and the caller is responsible for making sure its not called in multiple goroutines at the same time
 func (c *Conn) SendNoLock(data []byte) error {
-	c.Log(LogDebug, nil, "sending raw event")
-
 	_, err := c.netConn.Write(data)
 	return errors.WithMessage(err, "netConn.Write")
 }

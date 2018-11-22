@@ -138,6 +138,9 @@ func (c *Conn) handleMessage(m *dshardorchestrator.Message) {
 	case dshardorchestrator.EvtAllUserdataSent:
 		c.handleAllUserdataSent(m.DecodedBody.(*dshardorchestrator.AllUserDataSentData))
 	}
+	if m.EvtID >= 100 {
+		c.handleUserEvt(m)
+	}
 }
 
 func (c *Conn) handleIdentified(data *dshardorchestrator.IdentifiedData) {
@@ -225,6 +228,7 @@ func (c *Conn) handleStartShardMigration(data *dshardorchestrator.StartshardMigr
 
 func (c *Conn) handleAllUserdataSent(data *dshardorchestrator.AllUserDataSentData) {
 	c.mu.Lock()
+	c.baseConn.Log(dshardorchestrator.LogDebug, nil, fmt.Sprintf("all user data sent event received: %d (currently processed: %d)", data.NumEvents, c.processedUserEvents))
 	c.shardmigrationTotalUserEvts = data.NumEvents
 	if data.NumEvents <= c.processedUserEvents {
 		c.finishShardMigrationTo()
@@ -235,7 +239,7 @@ func (c *Conn) handleAllUserdataSent(data *dshardorchestrator.AllUserDataSentDat
 func (c *Conn) handleUserEvt(msg *dshardorchestrator.Message) {
 	decoded, err := dshardorchestrator.DecodePayload(msg.EvtID, msg.RawBody)
 	if err != nil {
-		go c.LogLock(dshardorchestrator.LogError, err, "failed deocding payload for user event, skipping it")
+		go c.LogLock(dshardorchestrator.LogError, err, "failed decoding payload for user event, skipping it")
 	} else {
 		c.bot.HandleUserEvent(msg.EvtID, decoded)
 	}

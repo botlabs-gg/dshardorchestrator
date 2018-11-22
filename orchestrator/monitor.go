@@ -13,8 +13,8 @@ type monitor struct {
 	stopChan chan bool
 
 	lastTimeLaunchedNode time.Time
-
-	shardsLastSeenTimes []time.Time
+	lastTimeStartedShard time.Time
+	shardsLastSeenTimes  []time.Time
 }
 
 func (mon *monitor) run() {
@@ -71,6 +71,10 @@ func (mon *monitor) tick() {
 
 	totalShards := mon.ensureTotalShards()
 	if totalShards == 0 {
+		return
+	}
+
+	if time.Since(mon.lastTimeStartedShard) < time.Second*5 {
 		return
 	}
 
@@ -135,6 +139,7 @@ OUTER:
 			if err != nil {
 				mon.orchestrator.Log(dshardorchestrator.LogError, err, "monitor: failed starting shard")
 			}
+			mon.lastTimeStartedShard = time.Now()
 			return
 		}
 	}
