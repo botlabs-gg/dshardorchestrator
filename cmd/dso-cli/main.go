@@ -166,6 +166,10 @@ func MigrateShard(c *cli.Context) error {
 }
 
 func PrettyFormatNumberList(numbers []int) string {
+	if len(numbers) < 1 {
+		return "None"
+	}
+
 	sort.Ints(numbers)
 
 	var out []string
