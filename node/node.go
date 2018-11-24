@@ -40,8 +40,8 @@ type Conn struct {
 	discordSequence  int64
 }
 
-// ConnectToOrchestrator attempts to connect to master ,if it fails it will launch a reconnect loop and wait until the master appears
-func ConnectToOrchestrator(bot Interface, addr string, nodeVersion string, logger dshardorchestrator.Logger) (*Conn, error) {
+// NewNodeConn returns a new node connection
+func NewNodeConn(bot Interface, addr string, nodeVersion string, logger dshardorchestrator.Logger) *Conn {
 	conn := &Conn{
 		bot:                 bot,
 		orchestratorAddress: addr,
@@ -49,9 +49,18 @@ func ConnectToOrchestrator(bot Interface, addr string, nodeVersion string, logge
 		logger:              logger,
 	}
 
-	go conn.reconnectLoop(false)
+	return conn
+}
 
-	return conn, nil
+// ConnectToOrchestrator attempts to connect to master, if it fails it will launch a reconnect loop and wait until the master appears
+func ConnectToOrchestrator(bot Interface, addr string, nodeVersion string, logger dshardorchestrator.Logger) (*Conn, error) {
+	nc := NewNodeConn(bot, addr, nodeVersion, logger)
+	nc.Run()
+	return nc, nil
+}
+
+func (c *Conn) Run() {
+	go c.reconnectLoop(false)
 }
 
 func (c *Conn) connect() error {
@@ -145,15 +154,16 @@ func (c *Conn) handleMessage(m *dshardorchestrator.Message) {
 
 func (c *Conn) handleIdentified(data *dshardorchestrator.IdentifiedData) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	c.totalShards = data.TotalShards
 	c.baseConn.ID.Store(data.NodeID)
-	go c.bot.SessionEstablished(SessionInfo{
-		TotalShards: data.TotalShards,
-	})
 
 	c.baseConn.Log(dshardorchestrator.LogInfo, nil, "Session established")
+	c.mu.Unlock()
+
+	c.bot.SessionEstablished(SessionInfo{
+		TotalShards: data.TotalShards,
+	})
 }
 
 func (c *Conn) handleStartShard(data *dshardorchestrator.StartShardData) {
@@ -212,6 +222,10 @@ func (c *Conn) handlePrepareShardMigration(data *dshardorchestrator.PrepareShard
 		c.shardMigrationShard = data.ShardID
 		c.processedUserEvents = 0
 		c.shardmigrationTotalUserEvts = -1
+
+		if !dshardorchestrator.ContainsInt(c.nodeShards, data.ShardID) {
+			c.nodeShards = append(c.nodeShards, data.ShardID)
+		}
 		c.mu.Unlock()
 
 		c.bot.InitializeShardTransferTo(data.ShardID, data.SessionID, data.Sequence)
@@ -264,6 +278,8 @@ func (c *Conn) finishShardMigrationTo() {
 	c.shardmigrationTotalUserEvts = -1
 	c.discordSequence = 0
 	c.discordSessionID = ""
+
+	c.baseConn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("finished migrating shard #%d", c.shardMigrationShard))
 }
 
 func (c *Conn) handleShutdown() {
