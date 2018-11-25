@@ -227,6 +227,7 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 				break
 			}
 		}
+		nc.Orchestrator.mu.Unlock()
 	}
 
 	// after this we have sucessfully established a session
