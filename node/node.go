@@ -70,10 +70,19 @@ func (c *Conn) connect() error {
 	}
 
 	c.mu.Lock()
+	id := ""
+	if c.baseConn != nil {
+		id = c.baseConn.GetID()
+	}
+
 	c.baseConn = dshardorchestrator.ConnFromNetCon(netConn, c.logger)
 	c.baseConn.MessageHandler = c.handleMessage
 	c.baseConn.ConnClosedHanlder = c.onClosedConn
 	c.reconnecting = false
+	if id != "" {
+		c.baseConn.ID.Store(id)
+	}
+
 	go c.baseConn.Listen()
 
 	go c.SendLogErr(dshardorchestrator.EvtIdentify, &dshardorchestrator.IdentifyData{
