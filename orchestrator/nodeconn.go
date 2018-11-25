@@ -235,7 +235,7 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 		TotalShards: totalShards,
 	}
 
-	go nc.Conn.SendLogErr(dshardorchestrator.EvtIdentified, resp)
+	nc.Conn.SendLogErr(dshardorchestrator.EvtIdentified, resp)
 
 	nc.mu.Lock()
 	nc.version = data.Version
