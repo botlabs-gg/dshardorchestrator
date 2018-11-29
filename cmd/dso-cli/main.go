@@ -55,6 +55,11 @@ func main() {
 			Usage:  "migrates all shards on a node to another one",
 			Action: MigrateNode,
 		},
+		cli.Command{
+			Name:   "fullmigration",
+			Usage:  "migrates all nodes to new nodes",
+			Action: FullMigration,
+		},
 	}
 
 	app.Before = func(c *cli.Context) error {
@@ -157,6 +162,19 @@ func MigrateShard(c *cli.Context) error {
 	fmt.Printf("migrating shard %d to %s...\n", shardID, targetNode)
 
 	msg, err := restClient.MigrateShard(targetNode, int(shardID))
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(msg)
+	return nil
+}
+
+func FullMigration(c *cli.Context) error {
+
+	fmt.Println("migration all nodes to new nodes, this might take a while")
+
+	msg, err := restClient.MigrateAllNodesToNewNodes()
 	if err != nil {
 		return err
 	}

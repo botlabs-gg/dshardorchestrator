@@ -124,3 +124,13 @@ func (c *Client) MigrateNode(originNodeID, newNodeID string, shutdown bool) (msg
 
 	return c.handleBasicResponse(&resp)
 }
+
+func (c *Client) MigrateAllNodesToNewNodes() (msg string, err error) {
+	var resp BasicResponse
+	err = c.do("POST", "/fullmigration", nil, &resp)
+	if err != nil {
+		return "", err
+	}
+
+	return c.handleBasicResponse(&resp)
+}

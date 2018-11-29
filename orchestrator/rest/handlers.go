@@ -94,5 +94,6 @@ func (ra *RESTAPI) handlePOSTMigrateNode(c *gin.Context) {
 }
 
 func (ra *RESTAPI) handlePOSTFullMigration(c *gin.Context) {
-
+	err := ra.orchestrator.MigrateAllNodesToNewNodes(true)
+	sendBasicResponse(c, err, "migrated all nodes to new nodes")
 }
