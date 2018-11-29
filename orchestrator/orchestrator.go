@@ -356,26 +356,6 @@ func (o *Orchestrator) StopShard(shard int) error {
 	return nil
 }
 
-// func (o *Orchestrator) FullMigrationToNewNodes() error {
-// 	if o.NodeLauncher == nil {
-// 		return ErrNoNodeLauncher
-// 	}
-
-// 	oldNodes := o.GetFullNodesStatus()
-
-// 	for _, node := range oldNodes {
-// 		newNode, err := o.startWaitForNode()
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 	}
-// }
-
-// func (o *Orchestrator) startWaitForNode() (string, error) {
-
-// }
-
 // MigrateFullNode migrates all the shards on the origin node to the destination node
 // optionally also shutting the origin node down at the end
 func (o *Orchestrator) MigrateFullNode(fromNode string, toNodeID string, shutdownOldNode bool) error {
@@ -476,4 +456,77 @@ func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string,
 			break
 		}
 	}
+}
+
+func (o *Orchestrator) findAvailableNode(ignore []*NodeStatus) (string, error) {
+	var lastTimeStartedNode time.Time
+
+	for {
+		// look for a available node
+		nodes := o.GetFullNodesStatus()
+	FINDOUTER:
+		for _, v := range nodes {
+			if !v.Connected || len(v.Shards) > 0 {
+				continue
+			}
+
+			for _, ig := range ignore {
+				if ig.ID == v.ID {
+					continue FINDOUTER
+				}
+			}
+
+			return v.ID, nil
+		}
+
+		// need to start a new node
+		// we wait inbetween 10 seconds each launch
+		// nodes may have been "stolen" by someone in between so we can retry if we fail after 10 seconds
+		// TODO: reserve nodes
+		if time.Since(lastTimeStartedNode) < time.Second*10 {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		err := o.StartNewNode()
+		if err != nil {
+			return "", err
+		}
+
+		lastTimeStartedNode = time.Now()
+		time.Sleep(time.Second)
+	}
+}
+
+// MigrateAllNodesToNewNodes performs a full migration of all nodes
+// if returnOnError is set then it will return when one of the nodes fail migrating, otherwise it will just log and continue onto the next
+func (o *Orchestrator) MigrateAllNodesToNewNodes(returnOnError bool) error {
+	o.Log(dshardorchestrator.LogInfo, nil, "performing a full node migration on all nodes")
+
+	nodes := o.GetFullNodesStatus()
+
+	for _, v := range nodes {
+		if !v.Connected || len(v.Shards) < 1 {
+			continue
+		}
+
+		targetID, err := o.findAvailableNode(nodes)
+		if err != nil {
+			return err
+		}
+
+		err = o.MigrateFullNode(v.ID, targetID, true)
+		if err != nil {
+			if returnOnError {
+				return err
+			} else {
+				o.Log(dshardorchestrator.LogError, err, fmt.Sprintf("failed migrating %s to %s", v.ID, targetID))
+			}
+		}
+
+		// sleep a bit to allow for a buffer for things to settle post migration (maybe some reconnects triggered and such...)
+		time.Sleep(time.Second * 5)
+	}
+
+	return nil
 }
