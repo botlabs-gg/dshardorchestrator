@@ -1,82 +1,59 @@
 package main
 
 import (
-	"errors"
+	"flag"
 	"fmt"
 	"github.com/jedib0t/go-pretty/table"
 	"github.com/jonas747/dshardorchestrator/orchestrator/rest"
-	"log"
+	"github.com/mitchellh/cli"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/urfave/cli"
 )
 
 var restClient *rest.Client
+var serverAddr string
 
-func main() {
-	app := cli.NewApp()
-
-	app.Name = "dshardorchestrator command line client"
-	app.Description = "dso-cli is a command line interface for dshardorchestrator's sharding orchestrator"
-
-	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			EnvVar: "DSO_REST_SERVER_ADDR",
-			Name:   "serveraddr",
-			Value:  "http://127.0.0.1:7448",
-		},
-	}
-	app.Commands = []cli.Command{
-		cli.Command{
-			Name:   "status",
-			Usage:  "display status of all nodes",
-			Action: StatusCmd,
-		},
-		cli.Command{
-			Name:   "startnode",
-			Usage:  "starts a new node",
-			Action: StartNode,
-		},
-		cli.Command{
-			Name:   "shutdownnode",
-			Usage:  "shuts down a node",
-			Action: ShutdownNode,
-		},
-		cli.Command{
-			Name:   "migrateshard",
-			Usage:  "migrates all shards on a node to another one",
-			Action: MigrateShard,
-		},
-		cli.Command{
-			Name:   "migratenode",
-			Usage:  "migrates all shards on a node to another one",
-			Action: MigrateNode,
-		},
-		cli.Command{
-			Name:   "fullmigration",
-			Usage:  "migrates all nodes to new nodes",
-			Action: FullMigration,
-		},
-	}
-
-	app.Before = func(c *cli.Context) error {
-		restClient = rest.NewClient(c.String("serveraddr"))
-		return nil
-	}
-
-	err := app.Run(os.Args)
-	if err != nil {
-		log.Fatal(err)
-	}
+func init() {
+	flag.StringVar(&serverAddr, "serveraddr", "http://127.0.0.1:7448", "the rest server address")
 }
 
-func StatusCmd(c *cli.Context) error {
+func main() {
+	flag.Parse()
+	restClient = rest.NewClient(serverAddr)
+
+	app := cli.NewCLI("dshardorchestrator-cli", "0.1")
+	app.Args = os.Args[1:]
+
+	app.Commands = map[string]cli.CommandFactory{
+		"status":        StaticFactory(&StatusCommand{}),
+		"startnode":     StaticFactory(&StartNodeCmd{}),
+		"shutdownnode":  StaticFactory(&ShutdownNodeCmd{}),
+		"migrateshard":  StaticFactory(&MigrateShardCmd{}),
+		"migratenode":   StaticFactory(&MigrateNodeCmd{}),
+		"fullmigration": StaticFactory(&FullMigrationCmd{}),
+	}
+
+	exitStatus, err := app.Run()
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+
+	os.Exit(exitStatus)
+}
+
+type StatusCommand struct{}
+
+func (s *StatusCommand) Help() string {
+	return s.Synopsis()
+}
+
+func (s *StatusCommand) Run(args []string) int {
 	status, err := restClient.GetStatus()
 	if err != nil {
-		return err
+		fmt.Println("Error: ", err)
+		return 1
 	}
 
 	tb := table.NewWriter()
@@ -96,39 +73,71 @@ func StatusCmd(c *cli.Context) error {
 	}
 
 	fmt.Println(tb.Render())
-	return nil
+	return 0
 }
 
-func StartNode(c *cli.Context) error {
+func (s *StatusCommand) Synopsis() string {
+	return "display status of all nodes"
+}
+
+type StartNodeCmd struct{}
+
+func (s *StartNodeCmd) Help() string {
+	return s.Synopsis()
+}
+
+func (s *StartNodeCmd) Run(args []string) int {
 	msg, err := restClient.StartNewNode()
 	if err != nil {
-		return err
+		fmt.Println("Error: ", err)
+		return 1
 	}
 
 	fmt.Println(msg)
-	return nil
+	return 0
 }
 
-func ShutdownNode(c *cli.Context) error {
-	args := c.Args()
+func (s *StartNodeCmd) Synopsis() string {
+	return "starts a new node"
+}
+
+type ShutdownNodeCmd struct{}
+
+func (s *ShutdownNodeCmd) Help() string {
+	return s.Synopsis()
+}
+
+func (s *ShutdownNodeCmd) Run(args []string) int {
 	if len(args) < 1 || args[0] == "" {
-		return errors.New("no node specified")
+		fmt.Println("no node specified")
+		return 1
 	}
 
 	fmt.Println("shutting down " + args[0])
 	msg, err := restClient.ShutdownNode(args[0])
 	if err != nil {
-		return err
+		fmt.Println("Error: ", err)
+		return 1
 	}
 
 	fmt.Println(msg)
-	return nil
+	return 0
 }
 
-func MigrateNode(c *cli.Context) error {
-	args := c.Args()
+func (s *ShutdownNodeCmd) Synopsis() string {
+	return "shuts down the specified node"
+}
+
+type MigrateNodeCmd struct{}
+
+func (s *MigrateNodeCmd) Help() string {
+	return s.Synopsis()
+}
+
+func (s *MigrateNodeCmd) Run(args []string) int {
 	if len(args) < 2 {
-		return errors.New("usage: migratenode origin-node-id target-node-id")
+		fmt.Println("usage: migratenode origin-node-id target-node-id")
+		return 1
 	}
 
 	origin := args[0]
@@ -138,17 +147,28 @@ func MigrateNode(c *cli.Context) error {
 
 	msg, err := restClient.MigrateNode(origin, target, false)
 	if err != nil {
-		return err
+		fmt.Println("Error: ", err)
+		return 1
 	}
 
 	fmt.Println(msg)
-	return nil
+	return 0
 }
 
-func MigrateShard(c *cli.Context) error {
-	args := c.Args()
+func (s *MigrateNodeCmd) Synopsis() string {
+	return "migrates origin node to destination node, usage: origin-id destination-id"
+}
+
+type MigrateShardCmd struct{}
+
+func (s *MigrateShardCmd) Help() string {
+	return s.Synopsis()
+}
+
+func (s *MigrateShardCmd) Run(args []string) int {
 	if len(args) < 2 {
-		return errors.New("usage: migrateshard shard-id node-id")
+		fmt.Println("usage: migrateshard shard-id node-id")
+		return 1
 	}
 
 	shardIDStr := args[0]
@@ -156,31 +176,47 @@ func MigrateShard(c *cli.Context) error {
 
 	shardID, err := strconv.ParseInt(shardIDStr, 10, 32)
 	if err != nil {
-		return err
+		fmt.Println("invalid shard: ", err)
+		return 1
 	}
 
 	fmt.Printf("migrating shard %d to %s...\n", shardID, targetNode)
 
 	msg, err := restClient.MigrateShard(targetNode, int(shardID))
 	if err != nil {
-		return err
+		fmt.Println("Error: ", err)
+		return 1
 	}
 
 	fmt.Println(msg)
-	return nil
+	return 0
 }
 
-func FullMigration(c *cli.Context) error {
+func (s *MigrateShardCmd) Synopsis() string {
+	return "migrates the specified shard to the specified node, usage: shard-id node-id"
+}
 
+type FullMigrationCmd struct{}
+
+func (s *FullMigrationCmd) Help() string {
+	return s.Synopsis()
+}
+
+func (s *FullMigrationCmd) Run(args []string) int {
 	fmt.Println("migration all nodes to new nodes, this might take a while")
 
 	msg, err := restClient.MigrateAllNodesToNewNodes()
 	if err != nil {
-		return err
+		fmt.Println("Error: ", err)
+		return 1
 	}
 
 	fmt.Println(msg)
-	return nil
+	return 0
+}
+
+func (s *FullMigrationCmd) Synopsis() string {
+	return "migrates all shards on all nodes to new nodes"
 }
 
 func PrettyFormatNumberList(numbers []int) string {
@@ -222,4 +258,10 @@ func PrettyFormatNumberList(numbers []int) string {
 	}
 
 	return strings.Join(out, ", ")
+}
+
+func StaticFactory(c cli.Command) cli.CommandFactory {
+	return func() (cli.Command, error) {
+		return c, nil
+	}
 }
