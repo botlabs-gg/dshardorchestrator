@@ -368,7 +368,6 @@ func (o *Orchestrator) MigrateFullNode(fromNode string, toNodeID string, shutdow
 	if toNode == nil {
 		return ErrUnknownToNode
 	}
-
 	nodeFrom.mu.Lock()
 	shards := make([]int, len(nodeFrom.runningShards))
 	copy(shards, nodeFrom.runningShards)
@@ -383,7 +382,16 @@ func (o *Orchestrator) MigrateFullNode(fromNode string, toNodeID string, shutdow
 		}
 
 		// wait for it to be moved before we start the next one
-		o.WaitForShardMigration(fromNode, toNodeID, s)
+		o.WaitForShardMigration(nodeFrom, toNode, s)
+
+		// reset here in case something went wrong
+		toNode.mu.Lock()
+		toNode.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
+		toNode.mu.Unlock()
+
+		nodeFrom.mu.Lock()
+		nodeFrom.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
+		nodeFrom.mu.Unlock()
 
 		// wait a bit extra to allow for some time ot catch up on events processing
 		time.Sleep(time.Second)
@@ -408,19 +416,15 @@ func (o *Orchestrator) ShutdownNode(nodeID string) error {
 }
 
 // WaitForShardMigration blocks until a shard migration is complete
-func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string, shardID int) {
+func (o *Orchestrator) WaitForShardMigration(fromNode *NodeConn, toNode *NodeConn, shardID int) {
 	// wait for the shard to dissapear on the origin node
 	for {
 		time.Sleep(time.Second)
 
-		fromNode := o.FindNodeByID(fromNodeID)
-		if fromNode == nil {
-			continue
-		}
-
 		status := fromNode.GetFullStatus()
 
-		if !dshardorchestrator.ContainsInt(status.Shards, shardID) {
+		if !dshardorchestrator.ContainsInt(status.Shards, shardID) || !status.Connected {
+			// also if we disconnected then just go through all this immeditely
 			break
 		}
 	}
@@ -429,14 +433,11 @@ func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string,
 	for {
 		time.Sleep(time.Millisecond * 100)
 
-		toNode := o.FindNodeByID(toNodeID)
-		if toNode == nil {
-			continue
-		}
+		statusTo := toNode.GetFullStatus()
+		statusFrom := fromNode.GetFullStatus()
 
-		status := toNode.GetFullStatus()
-
-		if dshardorchestrator.ContainsInt(status.Shards, shardID) {
+		if dshardorchestrator.ContainsInt(statusTo.Shards, shardID) || !statusFrom.Connected {
+			// also if we disconnected then just go through all this immeditely
 			break
 		}
 	}
@@ -445,14 +446,10 @@ func (o *Orchestrator) WaitForShardMigration(fromNodeID string, toNodeID string,
 	for {
 		time.Sleep(time.Millisecond * 100)
 
-		toNode := o.FindNodeByID(toNodeID)
-		if toNode == nil {
-			continue
-		}
+		statusTo := toNode.GetFullStatus()
+		statusFrom := fromNode.GetFullStatus()
 
-		status := toNode.GetFullStatus()
-
-		if status.MigratingFrom == "" {
+		if statusTo.MigratingFrom == "" || !statusFrom.Connected {
 			break
 		}
 	}
