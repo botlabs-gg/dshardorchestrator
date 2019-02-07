@@ -2,14 +2,13 @@ package orchestrator
 
 import (
 	"bufio"
-	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"github.com/jonas747/discordgo"
 	"io"
 	"os"
 	"os/exec"
-	"sync/atomic"
+	"strconv"
+	"sync"
 	"time"
 )
 
@@ -36,13 +35,12 @@ type StdNodeLauncher struct {
 	CmdName     string
 	Args        []string
 
-	IDCounter *int64
+	mu                   sync.Mutex
+	lastTimeLaunchedNode time.Time
 }
 
 func NewNodeLauncher(cmdName string, args []string, idGen IDGenerator) NodeLauncher {
-	i := new(int64)
 	return &StdNodeLauncher{
-		IDCounter:   i,
 		IDGenerator: idGen,
 		CmdName:     cmdName,
 		Args:        args,
@@ -50,6 +48,14 @@ func NewNodeLauncher(cmdName string, args []string, idGen IDGenerator) NodeLaunc
 }
 
 func (nl *StdNodeLauncher) LaunchNewNode() (string, error) {
+	// ensure were not starting nodes too fast since the id generation only does millisecond unique ids
+	nl.mu.Lock()
+	if time.Since(nl.lastTimeLaunchedNode) < time.Millisecond*100 {
+		time.Sleep(time.Millisecond * 100)
+	}
+	nl.lastTimeLaunchedNode = time.Now()
+	nl.mu.Unlock()
+
 	// generate the node id
 	var err error
 	id := ""
@@ -93,15 +99,13 @@ func (nl *StdNodeLauncher) LaunchNewNode() (string, error) {
 }
 
 func (nl *StdNodeLauncher) GenerateID() string {
-	b := make([]byte, 8)
-	tns := time.Now().UnixNano()
-	binary.LittleEndian.PutUint64(b, uint64(tns))
+	tms := time.Now().UnixNano() / 1000000
+	st := strconv.FormatInt(tms, 36)
 
-	c := atomic.AddInt64(nl.IDCounter, 1)
+	pid := os.Getpid()
+	host, _ := os.Hostname()
 
-	tb64 := base64.URLEncoding.EncodeToString(b)
-
-	return fmt.Sprintf("%s-%d", tb64, c)
+	return fmt.Sprintf("%s-%d-%s", host, pid, st)
 }
 
 func (nl *StdNodeLauncher) PrintOutput(reader io.Reader) {
