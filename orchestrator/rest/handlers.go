@@ -45,8 +45,8 @@ func sendBasicResponse(c *gin.Context, err error, successMessage string) {
 }
 
 func (ra *RESTAPI) handlePOSTStartNode(c *gin.Context) {
-	err := ra.orchestrator.StartNewNode()
-	sendBasicResponse(c, err, "started a new node successfully")
+	id, err := ra.orchestrator.StartNewNode()
+	sendBasicResponse(c, err, "started a new node successfully: "+id)
 }
 
 func (ra *RESTAPI) handlePOSTShutdownNode(c *gin.Context) {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/jonas747/dshardorchestrator"
 	"net"
-	"strings"
 	"sync"
 	"time"
 )
@@ -211,24 +210,18 @@ func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
 		return
 	}
 
-	// check if this connection holds a "preliminary" id instead of a global unique one
-	if strings.HasPrefix(data.NodeID, "unknown") {
-		newID := nc.Orchestrator.NodeIDProvider.GenerateID()
-		nc.Conn.ID.Store(newID)
-	} else {
-		nc.Conn.ID.Store(data.NodeID)
+	nc.Conn.ID.Store(data.NodeID)
 
-		// check if were holding a duplicates
-		nc.Orchestrator.mu.Lock()
-		for i, n := range nc.Orchestrator.connectedNodes {
-			if n.Conn.GetID() == data.NodeID && n != nc {
-				go n.Conn.Close()
-				nc.Orchestrator.connectedNodes = append(nc.Orchestrator.connectedNodes[:i], nc.Orchestrator.connectedNodes[i+1:]...)
-				break
-			}
+	// check if were holding a duplicates
+	nc.Orchestrator.mu.Lock()
+	for i, n := range nc.Orchestrator.connectedNodes {
+		if n.Conn.GetID() == data.NodeID && n != nc {
+			go n.Conn.Close()
+			nc.Orchestrator.connectedNodes = append(nc.Orchestrator.connectedNodes[:i], nc.Orchestrator.connectedNodes[i+1:]...)
+			break
 		}
-		nc.Orchestrator.mu.Unlock()
 	}
+	nc.Orchestrator.mu.Unlock()
 
 	// after this we have sucessfully established a session
 	resp := &dshardorchestrator.IdentifiedData{

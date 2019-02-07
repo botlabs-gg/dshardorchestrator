@@ -17,9 +17,8 @@ func main() {
 	}
 
 	orch := orchestrator.NewStandardOrchestrator(discordSession)
-	orch.NodeLauncher = &orchestrator.StdNodeLauncher{
-		CmdName: "dso-sample-bot",
-	}
+	orch.NodeLauncher = orchestrator.NewNodeLauncher("./dso-sample-bot", nil, nil)
+
 	orch.Logger = &dshardorchestrator.StdLogger{
 		Level: dshardorchestrator.LogDebug,
 	}

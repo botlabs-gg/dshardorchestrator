@@ -14,6 +14,8 @@ var (
 
 // Conn represents a connection to the orchestrator
 type Conn struct {
+	NodeID string
+
 	baseConn *dshardorchestrator.Conn
 
 	bot                 Interface
@@ -41,8 +43,9 @@ type Conn struct {
 }
 
 // NewNodeConn returns a new node connection
-func NewNodeConn(bot Interface, addr string, nodeVersion string, logger dshardorchestrator.Logger) *Conn {
+func NewNodeConn(bot Interface, addr string, nodeVersion string, id string, logger dshardorchestrator.Logger) *Conn {
 	conn := &Conn{
+		NodeID:              id,
 		bot:                 bot,
 		orchestratorAddress: addr,
 		nodeVersion:         nodeVersion,
@@ -53,8 +56,8 @@ func NewNodeConn(bot Interface, addr string, nodeVersion string, logger dshardor
 }
 
 // ConnectToOrchestrator attempts to connect to master, if it fails it will launch a reconnect loop and wait until the master appears
-func ConnectToOrchestrator(bot Interface, addr string, nodeVersion string, logger dshardorchestrator.Logger) (*Conn, error) {
-	nc := NewNodeConn(bot, addr, nodeVersion, logger)
+func ConnectToOrchestrator(bot Interface, addr string, nodeVersion string, id string, logger dshardorchestrator.Logger) (*Conn, error) {
+	nc := NewNodeConn(bot, addr, nodeVersion, id, logger)
 	nc.Run()
 	return nc, nil
 }
@@ -70,18 +73,12 @@ func (c *Conn) connect() error {
 	}
 
 	c.mu.Lock()
-	id := ""
-	if c.baseConn != nil {
-		id = c.baseConn.GetID()
-	}
 
 	c.baseConn = dshardorchestrator.ConnFromNetCon(netConn, c.logger)
 	c.baseConn.MessageHandler = c.handleMessage
 	c.baseConn.ConnClosedHanlder = c.onClosedConn
 	c.reconnecting = false
-	if id != "" {
-		c.baseConn.ID.Store(id)
-	}
+	c.baseConn.ID.Store(c.NodeID)
 
 	go c.baseConn.Listen()
 

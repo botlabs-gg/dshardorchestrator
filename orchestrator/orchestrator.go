@@ -30,14 +30,13 @@ type RecommendTotalShardCountProvider interface {
 
 // NodeLauncher is responsible for the logic of spinning up new processes
 type NodeLauncher interface {
-	LaunchNewNode() error
+	LaunchNewNode() (nodeID string, err error)
 }
 
 type Orchestrator struct {
 	// these fields are only safe to edit before you start the orchestrator
 	// if you decide to change anything afterwards, it may panic or cause undefined behaviour
 
-	NodeIDProvider     NodeIDProvider
 	ShardCountProvider RecommendTotalShardCountProvider
 	NodeLauncher       NodeLauncher
 	Logger             dshardorchestrator.Logger
@@ -67,7 +66,6 @@ type Orchestrator struct {
 
 func NewStandardOrchestrator(session *discordgo.Session) *Orchestrator {
 	return &Orchestrator{
-		NodeIDProvider:     NewNodeIDProvider(),
 		ShardCountProvider: &StdShardCountProvider{DiscordSession: session},
 	}
 }
@@ -298,9 +296,9 @@ var (
 )
 
 // StartNewNode will launch a new node, it will not wait for it to connect
-func (o *Orchestrator) StartNewNode() error {
+func (o *Orchestrator) StartNewNode() (string, error) {
 	if o.NodeLauncher == nil {
-		return ErrNoNodeLauncher
+		return "", ErrNoNodeLauncher
 	}
 
 	return o.NodeLauncher.LaunchNewNode()
@@ -485,7 +483,7 @@ func (o *Orchestrator) findAvailableNode(ignore []*NodeStatus) (string, error) {
 			continue
 		}
 
-		err := o.StartNewNode()
+		_, err := o.StartNewNode()
 		if err != nil {
 			return "", err
 		}

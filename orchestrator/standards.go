@@ -27,59 +27,81 @@ func (sc *StdShardCountProvider) GetTotalShardCount() (int, error) {
 	return gwBot.Shards, nil
 }
 
-// StdNodeIDProvider is a standard implementation of NodeIDProvider
-type StdNodeIDProvider struct {
-	Counter *int64
-}
-
-func NewNodeIDProvider() *StdNodeIDProvider {
-	return &StdNodeIDProvider{
-		Counter: new(int64),
-	}
-}
-
-func (nid *StdNodeIDProvider) GenerateID() string {
-	b := make([]byte, 8)
-	tns := time.Now().UnixNano()
-	binary.LittleEndian.PutUint64(b, uint64(tns))
-
-	c := atomic.AddInt64(nid.Counter, 1)
-
-	tb64 := base64.URLEncoding.EncodeToString(b)
-
-	return fmt.Sprintf("%s-%d", tb64, c)
+type IDGenerator interface {
+	GenerateID() (string, error)
 }
 
 type StdNodeLauncher struct {
-	CmdName string
-	Args    []string
+	IDGenerator IDGenerator
+	CmdName     string
+	Args        []string
+
+	IDCounter *int64
 }
 
-func (nl *StdNodeLauncher) LaunchNewNode() error {
-	cmd := exec.Command(nl.CmdName, nl.Args...)
+func NewNodeLauncher(cmdName string, args []string, idGen IDGenerator) NodeLauncher {
+	i := new(int64)
+	return &StdNodeLauncher{
+		IDCounter:   i,
+		IDGenerator: idGen,
+		CmdName:     cmdName,
+		Args:        args,
+	}
+}
+
+func (nl *StdNodeLauncher) LaunchNewNode() (string, error) {
+	// generate the node id
+	var err error
+	id := ""
+	if nl.IDGenerator != nil {
+		id, err = nl.IDGenerator.GenerateID()
+	} else {
+		id = nl.GenerateID()
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	args := append(nl.Args, "-nodeid", id)
+
+	// launch it
+	cmd := exec.Command(nl.CmdName, args...)
 	cmd.Env = os.Environ()
 
 	wd, err := os.Getwd()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	cmd.Dir = wd
 
 	stdOut, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return "", err
 	}
 	go nl.PrintOutput(stdOut)
 
 	stdErr, err := cmd.StderrPipe()
 	if err != nil {
-		return err
+		return "", err
 	}
 	go nl.PrintOutput(stdErr)
 
 	err = cmd.Start()
-	return err
+	return id, err
+}
+
+func (nl *StdNodeLauncher) GenerateID() string {
+	b := make([]byte, 8)
+	tns := time.Now().UnixNano()
+	binary.LittleEndian.PutUint64(b, uint64(tns))
+
+	c := atomic.AddInt64(nl.IDCounter, 1)
+
+	tb64 := base64.URLEncoding.EncodeToString(b)
+
+	return fmt.Sprintf("%s-%d", tb64, c)
 }
 
 func (nl *StdNodeLauncher) PrintOutput(reader io.Reader) {

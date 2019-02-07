@@ -159,7 +159,7 @@ OUTER:
 		return
 	}
 
-	err := mon.orchestrator.NodeLauncher.LaunchNewNode()
+	_, err := mon.orchestrator.NodeLauncher.LaunchNewNode()
 	if err != nil {
 		mon.orchestrator.Log(dshardorchestrator.LogError, err, "monitor: failed starting a new node")
 		return
