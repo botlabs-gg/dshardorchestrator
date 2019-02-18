@@ -102,10 +102,9 @@ func (nl *StdNodeLauncher) GenerateID() string {
 	tms := time.Now().UnixNano() / 1000000
 	st := strconv.FormatInt(tms, 36)
 
-	pid := os.Getpid()
 	host, _ := os.Hostname()
 
-	return fmt.Sprintf("%s-%d-%s", host, pid, st)
+	return fmt.Sprintf("%s-%s", host, st)
 }
 
 func (nl *StdNodeLauncher) PrintOutput(reader io.Reader) {
