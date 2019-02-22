@@ -49,7 +49,7 @@ func (mon *monitor) ensureTotalShards() int {
 	}
 
 	// has not been set, try to set it
-	totalShards, err := mon.orchestrator.ShardCountProvider.GetTotalShardCount()
+	totalShards, err := mon.orchestrator.getTotalShardCount()
 	if err != nil {
 		mon.orchestrator.Log(dshardorchestrator.LogError, err, "monitor: failed fetching total shard count, retrying in a second")
 		return 0
@@ -119,6 +119,11 @@ OUTER:
 			if ns.MigratingShard == i && (ns.MigratingFrom != "" || ns.MigratingTo != "") {
 				continue OUTER
 			}
+		}
+
+		// if were running multi-host mode, check to make sure we don't start a shard were not responsible for
+		if !mon.orchestrator.isResponsibleForShard(i) {
+			continue
 		}
 
 		shardsToStart = append(shardsToStart, i)

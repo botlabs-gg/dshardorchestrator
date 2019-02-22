@@ -41,6 +41,14 @@ type Orchestrator struct {
 	NodeLauncher       NodeLauncher
 	Logger             dshardorchestrator.Logger
 
+	// this is for running in a multi-host mode
+	// this allows you to have 1 shard orchestrator per host, then only have that orchestator care about the specified shards
+	// this also requires that the total shard count is fixed.
+	// FixedTotalShardCount will be ignored if <1
+	// ResponsibleForShards will be ignored if len < 1
+	FixedTotalShardCount int
+	ResponsibleForShards []int
+
 	// if set, the orchestrator will make sure that all the shards are always running
 	EnsureAllShardsRunning bool
 
@@ -524,4 +532,26 @@ func (o *Orchestrator) MigrateAllNodesToNewNodes(returnOnError bool) error {
 	}
 
 	return nil
+}
+
+func (o *Orchestrator) getTotalShardCount() (int, error) {
+	if o.FixedTotalShardCount > 0 {
+		return o.FixedTotalShardCount, nil
+	}
+
+	return o.ShardCountProvider.GetTotalShardCount()
+}
+
+func (o *Orchestrator) isResponsibleForShard(shard int) bool {
+	if len(o.ResponsibleForShards) < 1 {
+		return true
+	}
+
+	for _, v := range o.ResponsibleForShards {
+		if v == shard {
+			return true
+		}
+	}
+
+	return false
 }
