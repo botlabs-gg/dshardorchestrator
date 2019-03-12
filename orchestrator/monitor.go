@@ -137,8 +137,9 @@ OUTER:
 
 	// start one
 	// reason we don't start them all at once is that there's no real point in that, you can only start a shard every 5 seconds anyways
+	// attempt to start it on a existing node before starting a new node
 	for _, v := range fullNodeStatuses {
-		if !v.Connected || !v.SessionEstablished {
+		if !v.Connected || !v.SessionEstablished || v.Blacklisted {
 			continue
 		}
 

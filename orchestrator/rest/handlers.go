@@ -110,3 +110,15 @@ func (ra *RESTAPI) handlePOSTStopShard(c *gin.Context) {
 	err = ra.orchestrator.StopShard(parsedShardID)
 	sendBasicResponse(c, err, "sent stop shard action")
 }
+
+func (ra *RESTAPI) handlePOSTBlacklistNode(c *gin.Context) {
+	node, _ := c.GetPostForm("node")
+
+	if node == "" {
+		sendBasicResponse(c, errors.New("node not provided"), "")
+		return
+	}
+
+	ra.orchestrator.BlacklistNode(node)
+	sendBasicResponse(c, nil, "blacklisted node node")
+}

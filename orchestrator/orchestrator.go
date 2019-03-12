@@ -70,6 +70,9 @@ type Orchestrator struct {
 	activeMigrationFrom string
 	activeMigrationTo   string
 	netListener         net.Listener
+
+	// blacklisted nodes will not get new shards assigned to them
+	blacklistedNodes []string
 }
 
 func NewStandardOrchestrator(session *discordgo.Session) *Orchestrator {
@@ -163,6 +166,7 @@ type NodeStatus struct {
 	Shards             []int
 	Connected          bool
 	DisconnectedAt     time.Time
+	Blacklisted        bool
 
 	MigratingFrom  string
 	MigratingTo    string
@@ -176,8 +180,11 @@ func (o *Orchestrator) GetFullNodesStatus() []*NodeStatus {
 	o.mu.Lock()
 	for _, v := range o.connectedNodes {
 		o.mu.Unlock()
-		result = append(result, v.GetFullStatus())
+		st := v.GetFullStatus()
 		o.mu.Lock()
+
+		st.Blacklisted = o.isNodeBlacklisted(false, st.ID)
+		result = append(result, st)
 	}
 	o.mu.Unlock()
 
@@ -549,6 +556,34 @@ func (o *Orchestrator) isResponsibleForShard(shard int) bool {
 
 	for _, v := range o.ResponsibleForShards {
 		if v == shard {
+			return true
+		}
+	}
+
+	return false
+}
+
+// BlacklistNode blacklists a node from beign designated new shards
+func (o *Orchestrator) BlacklistNode(node string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.isNodeBlacklisted(false, node) {
+		// already blacklisted
+		return
+	}
+
+	o.blacklistedNodes = append(o.blacklistedNodes, node)
+}
+
+func (o *Orchestrator) isNodeBlacklisted(lock bool, node string) bool {
+	if lock {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+	}
+
+	for _, v := range o.blacklistedNodes {
+		if v == node {
 			return true
 		}
 	}

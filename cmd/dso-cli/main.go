@@ -34,6 +34,7 @@ func main() {
 		"migratenode":   StaticFactory(&MigrateNodeCmd{}),
 		"fullmigration": StaticFactory(&FullMigrationCmd{}),
 		"stopshard":     StaticFactory(&StopShardCmd{}),
+		"blacklistnode": StaticFactory(&BlacklistNodeCmd{}),
 	}
 
 	exitStatus, err := app.Run()
@@ -58,7 +59,7 @@ func (s *StatusCommand) Run(args []string) int {
 	}
 
 	tb := table.NewWriter()
-	tb.AppendHeader(table.Row{"id", "version", "connected", "shards", "migrating"})
+	tb.AppendHeader(table.Row{"id", "version", "connected", "shards", "extra"})
 
 	for _, n := range status.Nodes {
 
@@ -68,6 +69,13 @@ func (s *StatusCommand) Run(args []string) int {
 			rowExtra = fmt.Sprintf("migrating %3d from %s", n.MigratingShard, n.MigratingFrom)
 		} else if n.MigratingTo != "" {
 			rowExtra = fmt.Sprintf("migrating %3d to   %s", n.MigratingShard, n.MigratingTo)
+		}
+
+		if n.Blacklisted {
+			if rowExtra != "" {
+				rowExtra += ", "
+			}
+			rowExtra += "blacklisted"
 		}
 
 		tb.AppendRow(table.Row{n.ID, n.Version, n.Connected, PrettyFormatNumberList(n.Shards), rowExtra})
@@ -295,6 +303,36 @@ func (s *StopShardCmd) Run(args []string) int {
 
 func (s *StopShardCmd) Synopsis() string {
 	return "stops the specified shard"
+}
+
+type BlacklistNodeCmd struct{}
+
+func (s *BlacklistNodeCmd) Help() string {
+	return s.Synopsis()
+}
+
+func (s *BlacklistNodeCmd) Run(args []string) int {
+	if len(args) < 1 {
+		fmt.Println("usage: blacklistnode node-id")
+		return 1
+	}
+
+	nodeID := args[0]
+
+	fmt.Printf("blacklisting node %s\n", nodeID)
+
+	msg, err := restClient.BlacklistNode(nodeID)
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return 1
+	}
+
+	fmt.Println(msg)
+	return 0
+}
+
+func (s *BlacklistNodeCmd) Synopsis() string {
+	return "blacklists the specified node from being assigned new shards"
 }
 
 func StaticFactory(c cli.Command) cli.CommandFactory {
