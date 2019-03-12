@@ -97,3 +97,16 @@ func (ra *RESTAPI) handlePOSTFullMigration(c *gin.Context) {
 	err := ra.orchestrator.MigrateAllNodesToNewNodes(true)
 	sendBasicResponse(c, err, "migrated all nodes to new nodes")
 }
+
+func (ra *RESTAPI) handlePOSTStopShard(c *gin.Context) {
+	shardIDStr, _ := c.GetPostForm("shard")
+
+	parsedShardID, err := strconv.Atoi(shardIDStr)
+	if err != nil {
+		sendBasicResponse(c, errors.WithMessage(err, "parse-shardid"), "")
+		return
+	}
+
+	err = ra.orchestrator.StopShard(parsedShardID)
+	sendBasicResponse(c, err, "sent stop shard action")
+}

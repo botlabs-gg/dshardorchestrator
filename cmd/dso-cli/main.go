@@ -33,6 +33,7 @@ func main() {
 		"migrateshard":  StaticFactory(&MigrateShardCmd{}),
 		"migratenode":   StaticFactory(&MigrateNodeCmd{}),
 		"fullmigration": StaticFactory(&FullMigrationCmd{}),
+		"stopshard":     StaticFactory(&StopShardCmd{}),
 	}
 
 	exitStatus, err := app.Run()
@@ -258,6 +259,42 @@ func PrettyFormatNumberList(numbers []int) string {
 	}
 
 	return strings.Join(out, ", ")
+}
+
+type StopShardCmd struct{}
+
+func (s *StopShardCmd) Help() string {
+	return s.Synopsis()
+}
+
+func (s *StopShardCmd) Run(args []string) int {
+	if len(args) < 1 {
+		fmt.Println("usage: stopshard shard-id")
+		return 1
+	}
+
+	shardIDStr := args[0]
+
+	shardID, err := strconv.ParseInt(shardIDStr, 10, 32)
+	if err != nil {
+		fmt.Println("invalid shard: ", err)
+		return 1
+	}
+
+	fmt.Printf("stopping shard %d\n", shardID)
+
+	msg, err := restClient.StopShard(int(shardID))
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return 1
+	}
+
+	fmt.Println(msg)
+	return 0
+}
+
+func (s *StopShardCmd) Synopsis() string {
+	return "stops the specified shard"
 }
 
 func StaticFactory(c cli.Command) cli.CommandFactory {

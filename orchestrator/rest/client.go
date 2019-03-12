@@ -134,3 +134,17 @@ func (c *Client) MigrateAllNodesToNewNodes() (msg string, err error) {
 
 	return c.handleBasicResponse(&resp)
 }
+
+func (c *Client) StopShard(shard int) (msg string, err error) {
+	body := url.Values{
+		"shard": []string{strconv.Itoa(shard)},
+	}.Encode()
+
+	var resp BasicResponse
+	err = c.do("POST", "/stopshard", []byte(body), &resp)
+	if err != nil {
+		return "", err
+	}
+
+	return c.handleBasicResponse(&resp)
+}
