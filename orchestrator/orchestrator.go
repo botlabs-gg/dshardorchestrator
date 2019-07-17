@@ -73,6 +73,8 @@ type Orchestrator struct {
 
 	// blacklisted nodes will not get new shards assigned to them
 	blacklistedNodes []string
+
+	performingFullMigration bool
 }
 
 func NewStandardOrchestrator(session *discordgo.Session) *Orchestrator {
@@ -469,6 +471,8 @@ func (o *Orchestrator) WaitForShardMigration(fromNode *NodeConn, toNode *NodeCon
 }
 
 func (o *Orchestrator) findAvailableNode(ignore []*NodeStatus) (string, error) {
+	numFailed := 0
+
 	var lastTimeStartedNode time.Time
 
 	for {
@@ -486,6 +490,10 @@ func (o *Orchestrator) findAvailableNode(ignore []*NodeStatus) (string, error) {
 				}
 			}
 
+			if v.MigratingFrom != "" || v.MigratingTo != "" {
+				continue
+			}
+
 			return v.ID, nil
 		}
 
@@ -493,9 +501,14 @@ func (o *Orchestrator) findAvailableNode(ignore []*NodeStatus) (string, error) {
 		// we wait inbetween 10 seconds each launch
 		// nodes may have been "stolen" by someone in between so we can retry if we fail after 10 seconds
 		// TODO: reserve nodes
-		if time.Since(lastTimeStartedNode) < time.Second*10 {
+		if time.Since(lastTimeStartedNode) < time.Second*60 {
 			time.Sleep(time.Second)
 			continue
+		}
+
+		numFailed++
+		if numFailed > 5 {
+			return "", errors.New("Failed 5 times")
 		}
 
 		_, err := o.StartNewNode()
@@ -511,6 +524,20 @@ func (o *Orchestrator) findAvailableNode(ignore []*NodeStatus) (string, error) {
 // MigrateAllNodesToNewNodes performs a full migration of all nodes
 // if returnOnError is set then it will return when one of the nodes fail migrating, otherwise it will just log and continue onto the next
 func (o *Orchestrator) MigrateAllNodesToNewNodes(returnOnError bool) error {
+	o.mu.Lock()
+	if o.performingFullMigration {
+		o.mu.Unlock()
+		return errors.New("Already performing a full migration")
+	}
+	o.performingFullMigration = true
+	o.mu.Unlock()
+
+	defer func() {
+		o.mu.Lock()
+		o.performingFullMigration = false
+		o.mu.Unlock()
+	}()
+
 	o.Log(dshardorchestrator.LogInfo, nil, "performing a full node migration on all nodes")
 
 	nodes := o.GetFullNodesStatus()
