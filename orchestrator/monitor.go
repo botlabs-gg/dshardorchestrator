@@ -21,7 +21,7 @@ func (mon *monitor) run() {
 	mon.started = time.Now()
 	ticker := time.NewTicker(time.Second)
 
-	// allow timem for shards to connect before we start launching stuff
+	// allows time for shards to connect before we start launching stuff
 	time.Sleep(time.Second * 10)
 
 	for {
@@ -90,7 +90,7 @@ func (mon *monitor) tick() {
 
 	runningShards := make([]bool, totalShards)
 
-	// find the disconnect times for all shards that has disconnected
+	// find the disconnect times for all shards that have disconnected
 	fullNodeStatuses := mon.orchestrator.GetFullNodesStatus()
 	for _, ns := range fullNodeStatuses {
 		for _, s := range ns.Shards {
