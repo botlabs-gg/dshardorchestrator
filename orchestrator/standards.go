@@ -31,9 +31,12 @@ type IDGenerator interface {
 }
 
 type StdNodeLauncher struct {
-	IDGenerator IDGenerator
-	CmdName     string
-	Args        []string
+	IDGenerator   IDGenerator
+	LaunchCmdName string
+	LaunchArgs    []string
+
+	VersionCmdName string
+	VersionArgs    []string
 
 	mu                   sync.Mutex
 	lastTimeLaunchedNode time.Time
@@ -41,12 +44,13 @@ type StdNodeLauncher struct {
 
 func NewNodeLauncher(cmdName string, args []string, idGen IDGenerator) NodeLauncher {
 	return &StdNodeLauncher{
-		IDGenerator: idGen,
-		CmdName:     cmdName,
-		Args:        args,
+		IDGenerator:   idGen,
+		LaunchCmdName: cmdName,
+		LaunchArgs:    args,
 	}
 }
 
+// LaunchNewNode implements NodeLauncher.LaunchNewNode
 func (nl *StdNodeLauncher) LaunchNewNode() (string, error) {
 	// ensure were not starting nodes too fast since the id generation only does millisecond unique ids
 	nl.mu.Lock()
@@ -69,10 +73,10 @@ func (nl *StdNodeLauncher) LaunchNewNode() (string, error) {
 		return "", err
 	}
 
-	args := append(nl.Args, "-nodeid", id)
+	args := append(nl.LaunchArgs, "-nodeid", id)
 
 	// launch it
-	cmd := exec.Command(nl.CmdName, args...)
+	cmd := exec.Command(nl.LaunchCmdName, args...)
 	cmd.Env = os.Environ()
 
 	wd, err := os.Getwd()
@@ -121,4 +125,26 @@ func (nl *StdNodeLauncher) PrintOutput(reader io.Reader) {
 			break
 		}
 	}
+}
+
+// LaunchVersion implements NodeLauncher.LaunchVersion
+func (nl *StdNodeLauncher) LaunchVersion() (string, error) {
+
+	// launch it
+	cmd := exec.Command(nl.VersionCmdName, nl.VersionArgs...)
+	cmd.Env = os.Environ()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	cmd.Dir = wd
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return string(out), nil
 }

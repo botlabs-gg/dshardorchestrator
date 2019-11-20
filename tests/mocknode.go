@@ -3,6 +3,8 @@ package tests
 import (
 	"github.com/jonas747/dshardorchestrator"
 	"github.com/jonas747/dshardorchestrator/node"
+	"strconv"
+	"sync/atomic"
 )
 
 type MockBot struct {
@@ -77,4 +79,11 @@ func (mn *MockBot) HandleUserEvent(evt dshardorchestrator.EventType, data interf
 	if mn.HandleUserEventFunc != nil {
 		mn.HandleUserEventFunc(evt, data)
 	}
+}
+
+var lastID = new(int32)
+
+func generateID() string {
+	newID := atomic.AddInt32(lastID, 1)
+	return strconv.Itoa(int(newID)) + "-testing"
 }

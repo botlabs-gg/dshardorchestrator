@@ -122,3 +122,18 @@ func (ra *RESTAPI) handlePOSTBlacklistNode(c *gin.Context) {
 	ra.orchestrator.BlacklistNode(node)
 	sendBasicResponse(c, nil, "blacklisted node node")
 }
+
+func (ra *RESTAPI) handlePOSTPullVersion(c *gin.Context) {
+	if ra.orchestrator.VersionUpdater == nil {
+		sendBasicResponse(c, errors.New("no updater provided"), "")
+		return
+	}
+
+	newVersion, err := ra.orchestrator.VersionUpdater.PullNewVersion()
+	sendBasicResponse(c, err, newVersion)
+}
+
+func (ra *RESTAPI) handleGETDeployedVersion(c *gin.Context) {
+	version, err := ra.orchestrator.NodeLauncher.LaunchVersion()
+	sendBasicResponse(c, err, version)
+}

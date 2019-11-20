@@ -24,8 +24,8 @@ func (m *mockShardCountProvider) GetTotalShardCount() (int, error) {
 func CreateMockOrchestrator(numShards int) *orchestrator.Orchestrator {
 	return &orchestrator.Orchestrator{
 		ShardCountProvider: &mockShardCountProvider{numShards},
-		NodeIDProvider:     orchestrator.NewNodeIDProvider(),
-		Logger:             testLoggerOrchestrator,
+		// NodeIDProvider:     orchestrator.NewNodeIDProvider(),
+		Logger: testLoggerOrchestrator,
 	}
 }
 
@@ -45,7 +45,7 @@ func TestEstablishSession(t *testing.T) {
 		},
 	}
 
-	n, err := node.ConnectToOrchestrator(bot, testServerAddr, "testing", testLoggerNode)
+	n, err := node.ConnectToOrchestrator(bot, testServerAddr, "testing", generateID(), testLoggerNode)
 	if err != nil {
 		t.Fatal("failed connecting to orchestrator: ", err)
 	}
@@ -62,7 +62,7 @@ func TestEstablishSession(t *testing.T) {
 }
 
 func startConnectNode(t *testing.T, bot node.Interface, sessionWaitChan chan node.SessionInfo) (*node.Conn, bool) {
-	n, err := node.ConnectToOrchestrator(bot, testServerAddr, "testing", testLoggerNode)
+	n, err := node.ConnectToOrchestrator(bot, testServerAddr, "testing", generateID(), testLoggerNode)
 	if err != nil {
 		n.Close()
 		t.Fatal("failed connecting to orchestrator: ", err)

@@ -35,4 +35,7 @@ func (ra *RESTAPI) setupRoutes() {
 	ra.g.POST("/fullmigration", ra.handlePOSTFullMigration)
 	ra.g.POST("/stopshard", ra.handlePOSTStopShard)
 	ra.g.POST("/blacklistnode", ra.handlePOSTBlacklistNode)
+
+	ra.g.GET("/deployedversion", ra.handleGETDeployedVersion)
+	ra.g.POST("/pullnewversion", ra.handlePOSTPullVersion)
 }

@@ -164,3 +164,23 @@ func (c *Client) BlacklistNode(node string) (msg string, err error) {
 
 	return c.handleBasicResponse(&resp)
 }
+
+func (c *Client) PullNewVersion() (newVersion string, err error) {
+	var resp BasicResponse
+	err = c.do("POST", "/pullnewversion", nil, &resp)
+	if err != nil {
+		return "", err
+	}
+
+	return c.handleBasicResponse(&resp)
+}
+
+func (c *Client) GetDeployedVersion() (version string, err error) {
+	var resp BasicResponse
+	err = c.do("GET", "/deployedversion", nil, &resp)
+	if err != nil {
+		return "", err
+	}
+
+	return c.handleBasicResponse(&resp)
+}

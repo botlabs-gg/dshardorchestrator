@@ -2,16 +2,15 @@ package orchestrator
 
 import (
 	"fmt"
-	"github.com/jonas747/discordgo"
-	"github.com/jonas747/dshardorchestrator"
-	"github.com/pkg/errors"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/jonas747/discordgo"
+	"github.com/jonas747/dshardorchestrator"
+	"github.com/pkg/errors"
 )
 
-// NodeIDProvider is responsible for generating unique ids for nodes
-// note that this has to be unique over restarts (a simple in memory counter isn't enough)
 type NodeIDProvider interface {
 	GenerateID() string
 }
@@ -28,9 +27,19 @@ type RecommendTotalShardCountProvider interface {
 	GetTotalShardCount() (int, error)
 }
 
-// NodeLauncher is responsible for the logic of spinning up new processes
+// NodeLauncher is responsible for the logic of spinning up new processes and also receiving the version of the node that would be launched
 type NodeLauncher interface {
+	// Launches a new node, returning the id and a error if something went wrong
 	LaunchNewNode() (nodeID string, err error)
+
+	// Retrieves the version of nodes we would launch if we were to call LaunchNewNode()
+	// for example, the vesion of the binary deployed on the server.
+	LaunchVersion() (version string, err error)
+}
+
+// VersionUpdater is reponsible for updating the deployment, for example pulling a new version from a CI server
+type VersionUpdater interface {
+	PullNewVersion() (newVersion string, err error)
 }
 
 type Orchestrator struct {
@@ -40,6 +49,7 @@ type Orchestrator struct {
 	ShardCountProvider RecommendTotalShardCountProvider
 	NodeLauncher       NodeLauncher
 	Logger             dshardorchestrator.Logger
+	VersionUpdater     VersionUpdater
 
 	// this is for running in a multi-host mode
 	// this allows you to have 1 shard orchestrator per host, then only have that orchestator care about the specified shards

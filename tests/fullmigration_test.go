@@ -15,12 +15,17 @@ type MockLauncher struct {
 	sessionWaitChan chan node.SessionInfo
 }
 
-func (ml *MockLauncher) LaunchNewNode() error {
-	_, ok := startConnectNode(ml.t, ml.bot, ml.sessionWaitChan)
+func (ml *MockLauncher) LaunchNewNode() (string, error) {
+	n, ok := startConnectNode(ml.t, ml.bot, ml.sessionWaitChan)
 	if !ok {
-		return errors.New("unable to start mock node")
+		return "", errors.New("unable to start mock node")
 	}
-	return nil
+
+	return n.GetIDLock(), nil
+}
+
+func (ml *MockLauncher) LaunchVersion() (string, error) {
+	return "testing", nil
 }
 
 func TestFullMigration(t *testing.T) {
