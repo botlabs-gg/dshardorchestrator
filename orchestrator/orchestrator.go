@@ -83,7 +83,7 @@ func NewStandardOrchestrator(session *discordgo.Session) *Orchestrator {
 	}
 }
 
-// Start will start the orchestrator, and start to listen fro clients on the specified address
+// Start will start the orchestrator, and start to listen for clients on the specified address
 // IMPORTANT: opening this up to the outer internet is bad because there's no authentication.
 func (o *Orchestrator) Start(listenAddr string) error {
 	o.mu.Lock()
