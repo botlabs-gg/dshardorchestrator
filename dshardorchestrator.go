@@ -61,3 +61,10 @@ func ContainsInt(slice []int, i int) bool {
 
 	return false
 }
+
+// ShardInfo represents basic shard session info
+type ShardInfo struct {
+	ShardID   int
+	SessionID string
+	Sequence  int64
+}

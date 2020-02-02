@@ -1,8 +1,8 @@
 package tests
 
 import (
-	"github.com/jonas747/dshardorchestrator"
-	"github.com/jonas747/dshardorchestrator/node"
+	"github.com/jonas747/dshardorchestrator/v2"
+	"github.com/jonas747/dshardorchestrator/v2/node"
 	"strconv"
 	"sync/atomic"
 )
@@ -10,8 +10,9 @@ import (
 type MockBot struct {
 	SessionEstablishedFunc func(info node.SessionInfo)
 
-	StopShardFunc  func(shard int) (sessionID string, sequence int64)
-	StartShardFunc func(shard int, sessionID string, sequence int64)
+	StopShardFunc   func(shard int) (sessionID string, sequence int64)
+	ResumeShardFunc func(shard int, sessionID string, sequence int64)
+	AddNewShardFunc func(shards ...int)
 
 	// Caled when the bot should shut down, make sure to send EvtShutdown when completed
 	ShutdownFunc func()
@@ -24,6 +25,8 @@ type MockBot struct {
 
 	HandleUserEventFunc func(evt dshardorchestrator.EventType, data interface{})
 }
+
+var _ node.Interface = (*MockBot)(nil)
 
 func (mn *MockBot) SessionEstablished(info node.SessionInfo) {
 	if mn.SessionEstablishedFunc != nil {
@@ -38,9 +41,15 @@ func (mn *MockBot) StopShard(shard int) (sessionID string, sequence int64) {
 	return "", 0
 }
 
-func (mn *MockBot) StartShard(shard int, sessionID string, sequence int64) {
-	if mn.StartShardFunc != nil {
-		mn.StartShardFunc(shard, sessionID, sequence)
+func (mn *MockBot) AddNewShards(shards ...int) {
+	if mn.AddNewShardFunc != nil {
+		mn.AddNewShardFunc(shards...)
+	}
+}
+
+func (mn *MockBot) ResumeShard(shard int, sessionID string, sequence int64) {
+	if mn.ResumeShardFunc != nil {
+		mn.ResumeShardFunc(shard, sessionID, sequence)
 	}
 }
 

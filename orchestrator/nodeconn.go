@@ -2,13 +2,13 @@ package orchestrator
 
 import (
 	"fmt"
-	"github.com/jonas747/dshardorchestrator"
+	"github.com/jonas747/dshardorchestrator/v2"
 	"net"
 	"sync"
 	"time"
 )
 
-// Represents a connection from a master server to a slave
+// NodeConn represents a connection from a master server to a slave
 type NodeConn struct {
 	Orchestrator *Orchestrator
 	Conn         *dshardorchestrator.Conn
@@ -70,15 +70,20 @@ func (nc *NodeConn) handleMessage(msg *dshardorchestrator.Message) {
 	case dshardorchestrator.EvtIdentify:
 		nc.handleIdentify(msg.DecodedBody.(*dshardorchestrator.IdentifyData))
 
-	case dshardorchestrator.EvtStartShard:
-		data := msg.DecodedBody.(*dshardorchestrator.StartShardData)
+	case dshardorchestrator.EvtStartShards:
+		data := msg.DecodedBody.(*dshardorchestrator.StartShardsData)
 		nc.mu.Lock()
-		if !dshardorchestrator.ContainsInt(nc.runningShards, data.ShardID) {
-			nc.runningShards = append(nc.runningShards, data.ShardID)
-		}
 
-		if nc.shardMigrationShard == data.ShardID && nc.shardMigrationMode != dshardorchestrator.ShardMigrationModeNone {
-			nc.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
+		// add the shards to the tracked shards for this node
+		for _, v := range data.ShardIDs {
+			if !dshardorchestrator.ContainsInt(nc.runningShards, v) {
+				nc.runningShards = append(nc.runningShards, v)
+			}
+
+			if nc.shardMigrationShard == v && nc.shardMigrationMode != dshardorchestrator.ShardMigrationModeNone {
+				// we were migrating this shard, mark it as done
+				nc.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone
+			}
 		}
 
 		nc.mu.Unlock()
@@ -155,16 +160,19 @@ func (nc *NodeConn) validateTotalShards(data *dshardorchestrator.IdentifyData) (
 		// we may need to fetch a fresh shard count, but wait 10 seconds to see if another node with already set shard count connects
 
 		nc.Orchestrator.mu.Unlock()
-		for i := 0; i < 100; i++ {
-			time.Sleep(time.Millisecond * 100)
 
-			nc.Orchestrator.mu.Lock()
-			if nc.Orchestrator.totalShards != 0 {
+		if !nc.Orchestrator.SkipSafeStartupDelayMaxShards {
+			for i := 0; i < 100; i++ {
+				time.Sleep(time.Millisecond * 100)
+
+				nc.Orchestrator.mu.Lock()
+				if nc.Orchestrator.totalShards != 0 {
+					nc.Orchestrator.mu.Unlock()
+					break
+				}
+
 				nc.Orchestrator.mu.Unlock()
-				break
 			}
-
-			nc.Orchestrator.mu.Unlock()
 		}
 
 		// we need to fetch a fresh total shard count
@@ -205,6 +213,12 @@ func (nc *NodeConn) validateTotalShards(data *dshardorchestrator.IdentifyData) (
 }
 
 func (nc *NodeConn) handleIdentify(data *dshardorchestrator.IdentifyData) {
+	if data.OrchestratorLogicVersion != 2 {
+		// TODO: maybe disconnect instead? altough this is the best way of handling it imo
+		// instead of accidentally launching multiple of already connected shards, just stop everything if this happens
+		panic("Incompatible node behaviour/protocol version")
+	}
+
 	valid, totalShards := nc.validateTotalShards(data)
 	if !valid {
 		return
@@ -266,18 +280,21 @@ func (nc *NodeConn) GetFullStatus() *NodeStatus {
 	return status
 }
 
-func (nc *NodeConn) StartShard(shard int) {
-	go nc.Conn.SendLogErr(dshardorchestrator.EvtStartShard, &dshardorchestrator.StartShardData{
-		ShardID: shard,
+// StartShards tells the node to start the following shards
+func (nc *NodeConn) StartShards(shards ...int) {
+	go nc.Conn.SendLogErr(dshardorchestrator.EvtStartShards, &dshardorchestrator.StartShardsData{
+		ShardIDs: shards,
 	})
 }
 
+// StopShard tells the node to stop the provided shard
 func (nc *NodeConn) StopShard(shard int) {
 	go nc.Conn.SendLogErr(dshardorchestrator.EvtStopShard, &dshardorchestrator.StopShardData{
 		ShardID: shard,
 	})
 }
 
+// Shutdown tells the node to shut down compleely
 func (nc *NodeConn) Shutdown() {
 	nc.mu.Lock()
 	nc.shuttingDown = true

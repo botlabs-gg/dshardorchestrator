@@ -1,9 +1,9 @@
 package tests
 
 import (
-	"github.com/jonas747/dshardorchestrator"
-	"github.com/jonas747/dshardorchestrator/node"
-	"github.com/jonas747/dshardorchestrator/orchestrator"
+	"github.com/jonas747/dshardorchestrator/v2"
+	"github.com/jonas747/dshardorchestrator/v2/node"
+	"github.com/jonas747/dshardorchestrator/v2/orchestrator"
 	"sync"
 	"testing"
 	"time"
@@ -25,7 +25,8 @@ func CreateMockOrchestrator(numShards int) *orchestrator.Orchestrator {
 	return &orchestrator.Orchestrator{
 		ShardCountProvider: &mockShardCountProvider{numShards},
 		// NodeIDProvider:     orchestrator.NewNodeIDProvider(),
-		Logger: testLoggerOrchestrator,
+		Logger:                        testLoggerOrchestrator,
+		SkipSafeStartupDelayMaxShards: true,
 	}
 }
 
@@ -105,12 +106,17 @@ func TestMigrateShard(t *testing.T) {
 
 	sessionWaitChan := make(chan node.SessionInfo)
 	shardStartedChan := make(chan int)
+	shardsAddedChan := make(chan []int, 10)
+
 	bot1 := &MockBot{
 		SessionEstablishedFunc: func(info node.SessionInfo) {
 			sessionWaitChan <- info
 		},
-		StartShardFunc: func(shard int, sessionID string, sequence int64) {
+		ResumeShardFunc: func(shard int, sessionID string, sequence int64) {
 			shardStartedChan <- shard
+		},
+		AddNewShardFunc: func(shards ...int) {
+			shardsAddedChan <- shards
 		},
 		StartShardTransferFromFunc: func(shard int) int {
 			for _, v := range dataToMigrate {
@@ -128,7 +134,7 @@ func TestMigrateShard(t *testing.T) {
 		SessionEstablishedFunc: func(info node.SessionInfo) {
 			sessionWaitChan <- info
 		},
-		StartShardFunc: func(shard int, sessionID string, sequence int64) {
+		ResumeShardFunc: func(shard int, sessionID string, sequence int64) {
 			dataReceivedMU.Lock()
 			for i, v := range dataReceived {
 				if !v {
@@ -137,6 +143,9 @@ func TestMigrateShard(t *testing.T) {
 			}
 			dataReceivedMU.Unlock()
 			shardStartedChan <- shard
+		},
+		AddNewShardFunc: func(shards ...int) {
+			shardsAddedChan <- shards
 		},
 		HandleUserEventFunc: func(evt dshardorchestrator.EventType, data interface{}) {
 			dataCast := *data.(*string)
@@ -175,18 +184,7 @@ func TestMigrateShard(t *testing.T) {
 	on1 := orchestrator.FindNodeByID(n1.GetIDLock())
 
 	// start 5 shards on node 1
-	for i := 0; i < 5; i++ {
-		on1.StartShard(i)
-		select {
-		case s := <-shardStartedChan:
-			if s != i {
-				t.Fatal("mismatched shard id")
-				return
-			}
-		case <-time.After(time.Second * 5):
-			t.Fatal("timed out waiting for shard to start")
-		}
-	}
+	addWaitForShards(t, []int{0, 1, 2, 3, 4}, shardsAddedChan, on1)
 
 	// make sure that the orcehstrator has gotten feedback that the shards have started
 	time.Sleep(time.Millisecond * 250)
@@ -260,6 +258,7 @@ func TestMigrateNode(t *testing.T) {
 
 	sessionWaitChan := make(chan node.SessionInfo, 10)
 	shardStartedChan := make(chan int, 10)
+	shardsAddedChan := make(chan []int, 10)
 
 	dataReceived := make([]bool, len(dataToMigrate))
 	var dataReceivedMU sync.Mutex
@@ -268,8 +267,11 @@ func TestMigrateNode(t *testing.T) {
 		SessionEstablishedFunc: func(info node.SessionInfo) {
 			sessionWaitChan <- info
 		},
-		StartShardFunc: func(shard int, sessionID string, sequence int64) {
+		ResumeShardFunc: func(shard int, sessionID string, sequence int64) {
 			shardStartedChan <- shard
+		},
+		AddNewShardFunc: func(shards ...int) {
+			shardsAddedChan <- shards
 		},
 		StartShardTransferFromFunc: func(shard int) int {
 
@@ -292,7 +294,7 @@ func TestMigrateNode(t *testing.T) {
 		SessionEstablishedFunc: func(info node.SessionInfo) {
 			sessionWaitChan <- info
 		},
-		StartShardFunc: func(shard int, sessionID string, sequence int64) {
+		ResumeShardFunc: func(shard int, sessionID string, sequence int64) {
 			dataReceivedMU.Lock()
 			for i, v := range dataReceived {
 				if !v {
@@ -336,21 +338,9 @@ func TestMigrateNode(t *testing.T) {
 		return
 	}
 
-	on1 := orchestrator.FindNodeByID(n1.GetIDLock())
-
 	// start 5 shards on node 1
-	for i := 0; i < 5; i++ {
-		on1.StartShard(i)
-		select {
-		case s := <-shardStartedChan:
-			if s != i {
-				t.Fatal("mismatched shard id")
-				return
-			}
-		case <-time.After(time.Second * 5):
-			t.Fatal("timed out waiting for shard to start")
-		}
-	}
+	on1 := orchestrator.FindNodeByID(n1.GetIDLock())
+	addWaitForShards(t, []int{0, 1, 2, 3, 4}, shardsAddedChan, on1)
 
 	// make sure that the orcehstrator has gotten feedback that the shards have started
 	time.Sleep(time.Millisecond * 250)
@@ -383,5 +373,30 @@ func TestMigrateNode(t *testing.T) {
 				t.Fatal("node 1 holds incorrect number of shards: ", len(v.Shards))
 			}
 		}
+	}
+}
+
+func addWaitForShards(t *testing.T, shards []int, addChan chan []int, nc *orchestrator.NodeConn) {
+	// start 5 shards on node 1
+	nc.StartShards(shards...)
+	select {
+	case addedS := <-addChan:
+		if len(addedS) != len(shards) {
+			t.Fatal("mismatched added shards len's ")
+		}
+
+	OUTER:
+		for _, s := range shards {
+			for _, vs := range addedS {
+				if vs == s {
+					continue OUTER
+				}
+			}
+
+			// Couldn't find that shard
+			t.Fatalf("Shard %d not added", s)
+		}
+	case <-time.After(time.Second * 5):
+		t.Fatal("timed out waiting for shard to start")
 	}
 }

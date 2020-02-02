@@ -7,13 +7,13 @@ import (
 
 func TestEncodeMessage(t *testing.T) {
 	data := "hello"
-	encoded, err := EncodeMessage(EvtStartShard, data)
+	encoded, err := EncodeMessage(EvtStartShards, data)
 	if err != nil {
 		t.Fatal("an error occured encoding the mssage: ", err)
 	}
 
 	expectedOutput := []byte{
-		3, 0, 0, 0, // uint32 event id
+		10, 0, 0, 0, // uint32 event id
 		6, 0, 0, 0, // uint32 payload length
 		165, 104, 101, 108, 108, 111, // msgpack encoded payload
 	}

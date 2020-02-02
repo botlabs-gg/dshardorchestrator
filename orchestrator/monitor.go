@@ -2,7 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
-	"github.com/jonas747/dshardorchestrator"
+	"github.com/jonas747/dshardorchestrator/v2"
 	"time"
 )
 
@@ -12,9 +12,9 @@ type monitor struct {
 	started  time.Time
 	stopChan chan bool
 
-	lastTimeLaunchedNode time.Time
-	lastTimeStartedShard time.Time
-	shardsLastSeenTimes  []time.Time
+	lastTimeLaunchedNode       time.Time
+	lastTimeStartedShardBucket time.Time
+	shardsLastSeenTimes        []time.Time
 }
 
 func (mon *monitor) run() {
@@ -77,13 +77,13 @@ func (mon *monitor) tick() {
 		return
 	}
 
-	if time.Since(mon.lastTimeStartedShard) < time.Second*5 {
+	if time.Since(mon.lastTimeStartedShardBucket) < time.Second*5 {
 		return
 	}
 
 	if mon.shardsLastSeenTimes == nil {
 		mon.shardsLastSeenTimes = make([]time.Time, totalShards)
-		for i, _ := range mon.shardsLastSeenTimes {
+		for i := range mon.shardsLastSeenTimes {
 			mon.shardsLastSeenTimes[i] = time.Now()
 		}
 	}
@@ -105,8 +105,10 @@ func (mon *monitor) tick() {
 		}
 	}
 
-	// find out which shards to start
-	shardsToStart := make([]int, 0)
+	// find out which shards to start, the key is the bucket
+	shardsToStart := make(map[int][]int)
+	// shardsToStart := make([]int, 0)
+	nToStart := 0
 
 OUTER:
 	for i, lastTimeConnected := range mon.shardsLastSeenTimes {
@@ -126,14 +128,17 @@ OUTER:
 			continue
 		}
 
-		shardsToStart = append(shardsToStart, i)
+		bucket := mon.bucketForShard(i)
+
+		shardsToStart[bucket] = append(shardsToStart[bucket], i)
+		nToStart++
 	}
 
 	if len(shardsToStart) < 1 {
 		return
 	}
 
-	mon.orchestrator.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("monitor: need to start %d shards...", len(shardsToStart)))
+	mon.orchestrator.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("monitor: need to start %d shards...", nToStart))
 
 	// start one
 	// reason we don't start them all at once is that there's no real point in that, you can only start a shard every 5 seconds anyways
@@ -143,14 +148,35 @@ OUTER:
 			continue
 		}
 
-		if len(v.Shards) < mon.orchestrator.MaxShardsPerNode {
-			err := mon.orchestrator.StartShard(v.ID, shardsToStart[0])
-			if err != nil {
-				mon.orchestrator.Log(dshardorchestrator.LogError, err, "monitor: failed starting shard")
-			}
-			mon.lastTimeStartedShard = time.Now()
-			return
+		if len(v.Shards) >= mon.orchestrator.MaxShardsPerNode {
+			continue
 		}
+
+		canStartBucket := -1
+
+	FINDAVAILBUCKET:
+		for bucket := range shardsToStart {
+			for _, vs := range v.Shards {
+				vb := mon.bucketForShard(vs)
+				if vb != bucket {
+					// mistmatched buckets, can't start this shard here
+					continue FINDAVAILBUCKET
+				}
+			}
+
+			// no mismatched shard buckets
+			canStartBucket = bucket
+		}
+
+		if canStartBucket == -1 {
+			continue
+		}
+
+		err := mon.orchestrator.StartShards(v.ID, shardsToStart[canStartBucket]...)
+		if err != nil {
+			mon.orchestrator.Log(dshardorchestrator.LogError, err, "monitor: failed starting shards")
+		}
+		mon.lastTimeStartedShardBucket = time.Now()
 	}
 
 	// if we got here that means that there's no more nodes available, so start one
@@ -172,4 +198,14 @@ OUTER:
 	}
 
 	mon.lastTimeLaunchedNode = time.Now()
+}
+
+func (mon *monitor) bucketForShard(shard int) int {
+	bs := mon.orchestrator.ShardBucketSize
+	if bs > 1 {
+		return shard / bs
+	}
+
+	// not using buckets
+	return 0
 }

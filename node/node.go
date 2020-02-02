@@ -2,7 +2,7 @@ package node
 
 import (
 	"fmt"
-	"github.com/jonas747/dshardorchestrator"
+	"github.com/jonas747/dshardorchestrator/v2"
 	"net"
 	"sync"
 	"time"
@@ -83,10 +83,11 @@ func (c *Conn) connect() error {
 	go c.baseConn.Listen()
 
 	go c.SendLogErr(dshardorchestrator.EvtIdentify, &dshardorchestrator.IdentifyData{
-		NodeID:        c.baseConn.GetID(),
-		RunningShards: c.nodeShards,
-		TotalShards:   c.totalShards,
-		Version:       c.nodeVersion,
+		NodeID:                   c.baseConn.GetID(),
+		RunningShards:            c.nodeShards,
+		TotalShards:              c.totalShards,
+		Version:                  c.nodeVersion,
+		OrchestratorLogicVersion: 2,
 	}, false)
 
 	c.baseConn.Log(dshardorchestrator.LogInfo, nil, "sent identify")
@@ -140,8 +141,8 @@ func (c *Conn) handleMessage(m *dshardorchestrator.Message) {
 	switch m.EvtID {
 	case dshardorchestrator.EvtIdentified:
 		c.handleIdentified(m.DecodedBody.(*dshardorchestrator.IdentifiedData))
-	case dshardorchestrator.EvtStartShard:
-		c.handleStartShard(m.DecodedBody.(*dshardorchestrator.StartShardData))
+	case dshardorchestrator.EvtStartShards:
+		c.handleStartShard(m.DecodedBody.(*dshardorchestrator.StartShardsData))
 	case dshardorchestrator.EvtStopShard:
 		c.handleStopShard(m.DecodedBody.(*dshardorchestrator.StopShardData))
 	case dshardorchestrator.EvtShutdown:
@@ -172,17 +173,20 @@ func (c *Conn) handleIdentified(data *dshardorchestrator.IdentifiedData) {
 	})
 }
 
-func (c *Conn) handleStartShard(data *dshardorchestrator.StartShardData) {
-	c.bot.StartShard(data.ShardID, "", 0)
+func (c *Conn) handleStartShard(data *dshardorchestrator.StartShardsData) {
+	c.bot.AddNewShards(data.ShardIDs...)
 
 	c.mu.Lock()
-	if !dshardorchestrator.ContainsInt(c.nodeShards, data.ShardID) {
-		c.nodeShards = append(c.nodeShards, data.ShardID)
+	for _, v := range data.ShardIDs {
+		if !dshardorchestrator.ContainsInt(c.nodeShards, v) {
+			c.nodeShards = append(c.nodeShards, v)
+		}
+
+		c.baseConn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("Addedd shard #%d", v))
 	}
-	c.baseConn.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("starting shard #%d", data.ShardID))
 	c.mu.Unlock()
 
-	go c.SendLogErr(dshardorchestrator.EvtStartShard, data, true)
+	go c.SendLogErr(dshardorchestrator.EvtStartShards, data, true)
 }
 
 func (c *Conn) removeShard(shardID int) {
@@ -273,10 +277,10 @@ func (c *Conn) handleUserEvt(msg *dshardorchestrator.Message) {
 }
 
 func (c *Conn) finishShardMigrationTo() {
-	go c.bot.StartShard(c.shardMigrationShard, c.discordSessionID, c.discordSequence)
+	go c.bot.ResumeShard(c.shardMigrationShard, c.discordSessionID, c.discordSequence)
 
-	go c.SendLogErr(dshardorchestrator.EvtStartShard, &dshardorchestrator.StartShardData{
-		ShardID: c.shardMigrationShard,
+	go c.SendLogErr(dshardorchestrator.EvtStartShards, &dshardorchestrator.StartShardsData{
+		ShardIDs: []int{c.shardMigrationShard},
 	}, true)
 
 	c.shardMigrationMode = dshardorchestrator.ShardMigrationModeNone

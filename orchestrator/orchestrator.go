@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jonas747/discordgo"
-	"github.com/jonas747/dshardorchestrator"
+	"github.com/jonas747/dshardorchestrator/v2"
 	"github.com/pkg/errors"
 )
 
@@ -62,6 +62,10 @@ type Orchestrator struct {
 	// if set, the orchestrator will make sure that all the shards are always running
 	EnsureAllShardsRunning bool
 
+	// For large bot sharding the bucket size should be 16
+	// the orchestrator will only put shards in the same bucket on the same node
+	ShardBucketSize int
+
 	// the max amount of downtime for a node before we consider it dead and it will start a new node for those shards
 	// if set to below zero then it will not perform the restart at all
 	MaxNodeDowntimeBeforeRestart time.Duration
@@ -69,6 +73,9 @@ type Orchestrator struct {
 	// the maximum amount of shards per node, note that this is solely for the automated tasks the orchestrator provides
 	// and you can still go over it if you manually start shards on a node
 	MaxShardsPerNode int
+
+	// in case we are intiailizing max shards from nodes, we wait 10 seconds when we start before we decide we need to fetch a fresh shard count
+	SkipSafeStartupDelayMaxShards bool
 
 	monitor *monitor
 
@@ -338,15 +345,17 @@ var (
 
 // StartShard will start the specified shard on the specified node
 // it will return ErrShardAlreadyRunning if the shard is running on another node already
-func (o *Orchestrator) StartShard(nodeID string, shard int) error {
+func (o *Orchestrator) StartShards(nodeID string, shards ...int) error {
 	fullStatus := o.GetFullNodesStatus()
 	for _, v := range fullStatus {
 		if !v.Connected {
 			continue
 		}
 
-		if dshardorchestrator.ContainsInt(v.Shards, shard) {
-			return ErrShardAlreadyRunning
+		for _, s := range shards {
+			if dshardorchestrator.ContainsInt(v.Shards, s) {
+				return ErrShardAlreadyRunning
+			}
 		}
 	}
 
@@ -355,7 +364,7 @@ func (o *Orchestrator) StartShard(nodeID string, shard int) error {
 		return ErrUnknownNode
 	}
 
-	node.StartShard(shard)
+	node.StartShards(shards...)
 	return nil
 }
 

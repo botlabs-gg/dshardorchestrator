@@ -2,11 +2,12 @@ package tests
 
 import (
 	"errors"
-	"github.com/jonas747/dshardorchestrator"
-	"github.com/jonas747/dshardorchestrator/node"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jonas747/dshardorchestrator/v2"
+	"github.com/jonas747/dshardorchestrator/v2/node"
 )
 
 type MockLauncher struct {
@@ -51,6 +52,7 @@ func TestFullMigration(t *testing.T) {
 
 	sessionWaitChan := make(chan node.SessionInfo, 10)
 	shardStartedChan := make(chan int, 20)
+	shardsAddedChan := make(chan []int, 20)
 
 	dataReceived := make([]bool, len(dataToMigrate))
 	var dataReceivedMU sync.Mutex
@@ -59,8 +61,11 @@ func TestFullMigration(t *testing.T) {
 		SessionEstablishedFunc: func(info node.SessionInfo) {
 			sessionWaitChan <- info
 		},
-		StartShardFunc: func(shard int, sessionID string, sequence int64) {
+		ResumeShardFunc: func(shard int, sessionID string, sequence int64) {
 			shardStartedChan <- shard
+		},
+		AddNewShardFunc: func(shards ...int) {
+			shardsAddedChan <- shards
 		},
 		StartShardTransferFromFunc: func(shard int) int {
 
@@ -87,7 +92,7 @@ func TestFullMigration(t *testing.T) {
 		SessionEstablishedFunc: func(info node.SessionInfo) {
 			sessionWaitChan <- info
 		},
-		StartShardFunc: func(shard int, sessionID string, sequence int64) {
+		ResumeShardFunc: func(shard int, sessionID string, sequence int64) {
 			dataReceivedMU.Lock()
 			for i, v := range dataReceived {
 				if !v {
@@ -96,6 +101,9 @@ func TestFullMigration(t *testing.T) {
 			}
 			dataReceivedMU.Unlock()
 			shardStartedChan <- shard
+		},
+		AddNewShardFunc: func(shards ...int) {
+			shardsAddedChan <- shards
 		},
 		HandleUserEventFunc: func(evt dshardorchestrator.EventType, data interface{}) {
 			dataCast := *data.(*string)
@@ -134,23 +142,8 @@ func TestFullMigration(t *testing.T) {
 	on1 := orchestrator.FindNodeByID(n1.GetIDLock())
 	on2 := orchestrator.FindNodeByID(n2.GetIDLock())
 
-	// start 10 shards on node 1 and 2
-	for i := 0; i < 10; i++ {
-		if i < 5 {
-			on1.StartShard(i)
-		} else {
-			on2.StartShard(i)
-		}
-		select {
-		case s := <-shardStartedChan:
-			if s != i {
-				t.Fatal("mismatched shard id")
-				return
-			}
-		case <-time.After(time.Second * 5):
-			t.Fatal("timed out waiting for shard to start")
-		}
-	}
+	addWaitForShards(t, []int{0, 1, 2, 3, 4}, shardsAddedChan, on1)
+	addWaitForShards(t, []int{5, 6, 7, 8, 9}, shardsAddedChan, on2)
 
 	// make sure that the orcehstrator has gotten feedback that the shards have started
 	time.Sleep(time.Millisecond * 250)

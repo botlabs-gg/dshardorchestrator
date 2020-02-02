@@ -5,6 +5,9 @@ type IdentifyData struct {
 	RunningShards []int
 	Version       string
 	NodeID        string
+
+	// when the logic of the orhcestrator changes in a backwards incompatible way, we reject nodes with mistmatched logic versions
+	OrchestratorLogicVersion int
 }
 
 type IdentifiedData struct {
@@ -12,8 +15,8 @@ type IdentifiedData struct {
 	NodeID      string
 }
 
-type StartShardData struct {
-	ShardID int
+type StartShardsData struct {
+	ShardIDs []int
 }
 
 type StopShardData struct {
