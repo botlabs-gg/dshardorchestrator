@@ -2,8 +2,9 @@ package orchestrator
 
 import (
 	"fmt"
-	"github.com/jonas747/dshardorchestrator/v2"
 	"time"
+
+	"github.com/jonas747/dshardorchestrator/v2"
 )
 
 type monitor struct {
@@ -180,7 +181,7 @@ OUTER:
 	}
 
 	// if we got here that means that there's no more nodes available, so start one
-	if time.Since(mon.lastTimeLaunchedNode) < time.Second*5 {
+	if time.Since(mon.lastTimeLaunchedNode) < time.Second*30 {
 		// allow 5 seconds wait time in between each node launch
 		mon.orchestrator.Log(dshardorchestrator.LogDebug, nil, "monitor: can't start new node, on cooldown")
 		return
