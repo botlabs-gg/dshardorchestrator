@@ -157,9 +157,19 @@ OUTER:
 
 	FINDAVAILBUCKET:
 		for bucket := range shardsToStart {
+			realBucket := bucket
+			if mon.orchestrator.BucketsPerNode != 0 {
+				realBucket /= mon.orchestrator.BucketsPerNode
+			}
+
 			for _, vs := range v.Shards {
 				vb := mon.bucketForShard(vs)
-				if vb != bucket {
+
+				if mon.orchestrator.BucketsPerNode != 0 {
+					vb /= mon.orchestrator.BucketsPerNode
+				}
+
+				if realBucket != vb {
 					// mistmatched buckets, can't start this shard here
 					continue FINDAVAILBUCKET
 				}
