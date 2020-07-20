@@ -99,10 +99,8 @@ func (mon *monitor) tick() {
 				continue
 			}
 
-			if ns.Connected {
-				runningShards[s] = true
-				mon.shardsLastSeenTimes[s] = time.Now()
-			}
+			runningShards[s] = true
+			mon.shardsLastSeenTimes[s] = time.Now()
 		}
 	}
 
@@ -129,7 +127,7 @@ OUTER:
 			continue
 		}
 
-		bucket := mon.bucketForShard(i)
+		bucket := mon.nodeSlotForShard(i)
 
 		shardsToStart[bucket] = append(shardsToStart[bucket], i)
 		nToStart++
@@ -157,19 +155,9 @@ OUTER:
 
 	FINDAVAILBUCKET:
 		for bucket := range shardsToStart {
-			realBucket := bucket
-			if mon.orchestrator.BucketsPerNode != 0 {
-				realBucket /= mon.orchestrator.BucketsPerNode
-			}
-
 			for _, vs := range v.Shards {
-				vb := mon.bucketForShard(vs)
-
-				if mon.orchestrator.BucketsPerNode != 0 {
-					vb /= mon.orchestrator.BucketsPerNode
-				}
-
-				if realBucket != vb {
+				vb := mon.nodeSlotForShard(vs)
+				if bucket != vb {
 					// mistmatched buckets, can't start this shard here
 					continue FINDAVAILBUCKET
 				}
@@ -183,11 +171,17 @@ OUTER:
 			continue
 		}
 
-		err := mon.orchestrator.StartShards(v.ID, shardsToStart[canStartBucket]...)
+		starting := shardsToStart[canStartBucket]
+		if len(starting) > mon.orchestrator.ShardBucketSize {
+			starting = starting[:mon.orchestrator.ShardBucketSize]
+		}
+
+		err := mon.orchestrator.StartShards(v.ID, starting...)
 		if err != nil {
 			mon.orchestrator.Log(dshardorchestrator.LogError, err, "monitor: failed starting shards")
 		}
 		mon.lastTimeStartedShardBucket = time.Now()
+		return
 	}
 
 	// if we got here that means that there's no more nodes available, so start one
@@ -219,4 +213,15 @@ func (mon *monitor) bucketForShard(shard int) int {
 
 	// not using buckets
 	return 0
+}
+
+// same as bucketForShard but also applies the bucketsPerNode to for assigning buckets to nodes
+func (mon *monitor) nodeSlotForShard(shard int) int {
+	bucket := mon.bucketForShard(shard)
+	if mon.orchestrator.BucketsPerNode != 0 {
+		return bucket / mon.orchestrator.BucketsPerNode
+	}
+
+	// buckets per node is not set, ignore
+	return bucket
 }
