@@ -63,9 +63,10 @@ type Orchestrator struct {
 	EnsureAllShardsRunning bool
 
 	// For large bot sharding the bucket size should be 16
-	// the orchestrator will only put shards in the same bucket on the same node
+	// the orchestrator will only put shards in the same (bucket/bucketspernode) on the same node
 	ShardBucketSize int
-	BucketsPerNode  int
+	// The number of buckets per node, this * shardBucketSize should equal to the actual bots bucket size, but this allows more gradual control of the startup process
+	BucketsPerNode int
 
 	// the max amount of downtime for a node before we consider it dead and it will start a new node for those shards
 	// if set to below zero then it will not perform the restart at all
