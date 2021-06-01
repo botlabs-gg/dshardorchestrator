@@ -167,14 +167,19 @@ OUTER:
 			canStartBucket = bucket
 		}
 
+		mon.orchestrator.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("monitor: canStartBucket: %d", canStartBucket))
+
 		if canStartBucket == -1 {
 			continue
 		}
 
 		starting := shardsToStart[canStartBucket]
-		if len(starting) > mon.orchestrator.ShardBucketSize {
+
+		if mon.orchestrator.ShardBucketSize != 0 && len(starting) > mon.orchestrator.ShardBucketSize {
 			starting = starting[:mon.orchestrator.ShardBucketSize]
 		}
+
+		mon.orchestrator.Log(dshardorchestrator.LogInfo, nil, fmt.Sprintf("monitor: starting: %v", starting))
 
 		err := mon.orchestrator.StartShards(v.ID, starting...)
 		if err != nil {
