@@ -3,13 +3,14 @@ package orchestrator
 import (
 	"bufio"
 	"fmt"
-	"github.com/jonas747/discordgo"
 	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/jonas747/discordgo/v2"
 )
 
 // StdShardCountProvider is a standard implementation of RecommendedShardCountProvider

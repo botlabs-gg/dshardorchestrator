@@ -3,25 +3,30 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/jedib0t/go-pretty/table"
-	"github.com/jonas747/dshardorchestrator/orchestrator/rest"
-	"github.com/mitchellh/cli"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/jedib0t/go-pretty/table"
+	"github.com/jonas747/dshardorchestrator/v3/orchestrator/rest"
+	"github.com/mitchellh/cli"
 )
 
 var restClient *rest.Client
-var serverAddr string
+var serverAddr = os.Getenv("DSO_CLI_ADDR")
 
 func init() {
-	flag.StringVar(&serverAddr, "serveraddr", "http://127.0.0.1:7448", "the rest server address")
+	// flag.StringVar(&serverAddr, "serveraddr", "http://127.0.0.1:7448", "the rest server address")
 }
 
 func main() {
 	flag.Parse()
 	restClient = rest.NewClient(serverAddr)
+
+	if serverAddr == "" {
+		serverAddr = "http://127.0.0.1:7448"
+	}
 
 	app := cli.NewCLI("dshardorchestrator-cli", "0.1")
 	app.Args = os.Args[1:]

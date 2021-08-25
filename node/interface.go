@@ -1,7 +1,7 @@
 package node
 
 import (
-	"github.com/jonas747/dshardorchestrator/v2"
+	"github.com/jonas747/dshardorchestrator/v3"
 )
 
 type SessionInfo struct {

@@ -2,10 +2,11 @@ package orchestrator
 
 import (
 	"fmt"
-	"github.com/jonas747/dshardorchestrator/v2"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/jonas747/dshardorchestrator/v3"
 )
 
 // NodeConn represents a connection from a master server to a slave

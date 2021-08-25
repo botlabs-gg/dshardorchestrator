@@ -1,13 +1,14 @@
 package main
 
 import (
-	"github.com/jonas747/discordgo"
-	"github.com/jonas747/dshardorchestrator"
-	"github.com/jonas747/dshardorchestrator/orchestrator"
-	"github.com/jonas747/dshardorchestrator/orchestrator/rest"
 	"log"
 	"os"
 	"time"
+
+	"github.com/jonas747/discordgo/v2"
+	"github.com/jonas747/dshardorchestrator/v3"
+	"github.com/jonas747/dshardorchestrator/v3/orchestrator"
+	"github.com/jonas747/dshardorchestrator/v3/orchestrator/rest"
 )
 
 func main() {

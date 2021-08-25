@@ -1,10 +1,11 @@
 package tests
 
 import (
-	"github.com/jonas747/dshardorchestrator/v2"
-	"github.com/jonas747/dshardorchestrator/v2/node"
 	"strconv"
 	"sync/atomic"
+
+	"github.com/jonas747/dshardorchestrator/v3"
+	"github.com/jonas747/dshardorchestrator/v3/node"
 )
 
 type MockBot struct {

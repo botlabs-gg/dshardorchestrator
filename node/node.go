@@ -2,10 +2,11 @@ package node
 
 import (
 	"fmt"
-	"github.com/jonas747/dshardorchestrator/v2"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/jonas747/dshardorchestrator/v3"
 )
 
 var (

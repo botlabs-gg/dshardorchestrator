@@ -1,12 +1,13 @@
 package tests
 
 import (
-	"github.com/jonas747/dshardorchestrator/v2"
-	"github.com/jonas747/dshardorchestrator/v2/node"
-	"github.com/jonas747/dshardorchestrator/v2/orchestrator"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jonas747/dshardorchestrator/v3"
+	"github.com/jonas747/dshardorchestrator/v3/node"
+	"github.com/jonas747/dshardorchestrator/v3/orchestrator"
 )
 
 var testServerAddr = "127.0.0.1:7447"

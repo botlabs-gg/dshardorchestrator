@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonas747/dshardorchestrator/v2"
-	"github.com/jonas747/dshardorchestrator/v2/node"
+	"github.com/jonas747/dshardorchestrator/v3"
+	"github.com/jonas747/dshardorchestrator/v3/node"
 )
 
 type MockLauncher struct {

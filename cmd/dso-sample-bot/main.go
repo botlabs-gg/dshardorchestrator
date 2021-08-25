@@ -2,10 +2,11 @@ package main
 
 import (
 	"flag"
-	"github.com/jonas747/dshardorchestrator"
-	"github.com/jonas747/dshardorchestrator/node"
 	"log"
 	"os"
+
+	"github.com/jonas747/dshardorchestrator/v3"
+	"github.com/jonas747/dshardorchestrator/v3/node"
 )
 
 var Node *node.Conn

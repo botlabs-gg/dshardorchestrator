@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jonas747/dshardorchestrator/v2"
+	"github.com/jonas747/dshardorchestrator/v3"
 )
 
 type monitor struct {

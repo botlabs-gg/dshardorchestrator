@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/jonas747/discordgo"
-	"github.com/jonas747/dshardorchestrator"
-	"github.com/jonas747/dshardorchestrator/node"
 	"log"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/jonas747/discordgo/v2"
+	"github.com/jonas747/dshardorchestrator/v3"
+	"github.com/jonas747/dshardorchestrator/v3/node"
 )
 
 type Bot struct {
@@ -105,5 +106,13 @@ func (b *Bot) StartShardTransferFrom(shard int) (numEventsSent int) {
 }
 
 func (b *Bot) HandleUserEvent(evt dshardorchestrator.EventType, data interface{}) {
+
+}
+
+func (b *Bot) AddNewShards(shards ...int) {
+
+}
+
+func (b *Bot) ResumeShard(shard int, sessionID string, sequence int64) {
 
 }
